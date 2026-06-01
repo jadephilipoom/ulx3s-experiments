@@ -16,20 +16,16 @@ module top(input wire clk_25mhz,
     // Set up basic state machine.
     localparam STATE_INIT = 2'd0; // Initializing; program not yet loaded.
     localparam STATE_EXEC = 2'd1; // Executing the program.
-    localparam STATE_DONE = 2'd2; // Program exited (successfully).
-    localparam STATE_ERRS = 2'd3; // Init or exec stages ended due to failures.
+    localparam STATE_DONE = 2'd2; // Program exited successfully (terminal state).
+    localparam STATE_ERRS = 2'd3; // Crashed due to failures (terminal state).
     reg [1:0] state = STATE_INIT;
 
     // Error flags.
-    localparam ERRBIT_TIMEOUT = 0; // Maximum cycle count exceeded.
-    localparam ERRBIT_SER = 2;     // Error from the serial module.
-    localparam ERRBIT_CPU = 1;     // Error from the CPU module.
-    localparam ERRBIT_MEM = 2;     // Error from the memory module.
+    localparam ERRBIT_CNT = 0;  // Error from the cycle counter.
+    localparam ERRBIT_SER = 2;  // Error from the serial module.
+    localparam ERRBIT_CPU = 1;  // Error from the CPU module.
+    localparam ERRBIT_MEM = 2;  // Error from the memory module.
     reg [3:0] errs = 0;
-
-    // Set up cycle counter.
-    reg [63:0] cycle_count = 0;
-    localparam TIMEOUT = 64'hffffffff;
 
     reg [7:0] reader_out;
     wire reader_valid;
@@ -106,13 +102,20 @@ module top(input wire clk_25mhz,
         endcase
     end
 
-    // Cycle count incrementer.
+    wire timeout;
+    cycle_counter cycle_counter(
+        .i_clk(i_clk),
+        .i_en(state != STATE_DONE && state != STATE_ERRS),
+        .o_err(timeout),
+    );
+
+    // Check for timeouts.
     always @(posedge i_clk) begin
-        cycle_count <= cycle_count + 1;
-        if (cycle_count >= TIMEOUT) begin
-                // Cycle counter overflow
-                errs[ERRBIT_TIMEOUT] = 1;
-        end
+          // If the counter timed out, transition to the error state.
+          if (timeout) begin
+              errs[ERRBIT_CNT] = 1;
+              state = STATE_ERRS;
+          end
     end
 
 endmodule
@@ -167,6 +170,26 @@ module cpu(input wire i_clk,
         else begin
             o_err = 0;
             o_done = 0;
+        end
+    end
+
+endmodule
+
+// Cycle count incrementer.
+module cycle_counter(input wire i_clk,
+                     input wire i_en,
+                     output wire o_err);
+
+    reg [63:0] cycle_count = 0;
+    localparam TIMEOUT = 64'hffffffff;
+
+    always @(posedge i_clk) begin
+        if (i_en) begin
+            cycle_count <= cycle_count + 1;
+            if (cycle_count >= TIMEOUT) begin
+                // Counter overflow.
+                o_err = 1;
+            end
         end
     end
 
