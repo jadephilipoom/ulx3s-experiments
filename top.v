@@ -27,18 +27,18 @@ module top(input wire clk_25mhz,
     localparam ERRBIT_MEM = 2;  // Error from the memory module.
     reg [3:0] errs = 0;
 
-    reg [7:0] reader_out;
-    wire reader_valid;
-    wire reader_done;
-    wire reader_err;
-    reader reader(
+    reg [7:0] uart_rx_data;
+    wire uart_rx_data_valid;
+    wire uart_rx_done;
+    wire uart_tx_err;
+    uart_rx uart_rx(
         .i_clk(i_clk),
         .i_en(state == STATE_INIT),
-        .i_tx(ftdi_txd),
-        .o_data(reader_out),
-        .o_valid(reader_valid),
-        .o_done(reader_done),
-        .o_err(reader_err),
+        .i_rx(ftdi_txd),
+        .o_data(uart_rx_data),
+        .o_valid(uart_rx_data_valid),
+        .o_done(uart_rx_done),
+        .o_err(uart_rx_err),
     );
 
     wire cpu_done;
@@ -120,14 +120,13 @@ module top(input wire clk_25mhz,
 
 endmodule
 
-// Reads data from the input serial interface.
-module reader(input wire i_clk,
-              input wire i_en,
-              input wire i_tx,
-              output [7:0] o_data,
-              output wire o_valid,
-              output wire o_done,
-              output wire o_err);
+module uart_rx(input wire i_clk,
+               input wire i_en,
+               input wire i_rx,
+               output [7:0] o_data,
+               output wire o_valid,
+               output wire o_done,
+               output wire o_err);
 
     localparam STATE_WAIT = 2'd0; // Waiting for start sequence.
     localparam STATE_READ = 2'd1; // Reading data until end sequence.
