@@ -19,6 +19,7 @@ module top(input wire clk_25mhz,
     localparam STATE_DONE = 2'd2; // Program exited successfully (terminal state).
     localparam STATE_ERRS = 2'd3; // Crashed due to failures (terminal state).
     reg [1:0] state = STATE_INIT;
+    reg [1:0] next_state;
 
     // Error flags.
     localparam ERRBIT_CNT = 0;  // Error from the cycle counter.
@@ -41,20 +42,6 @@ module top(input wire clk_25mhz,
         .o_err(uart_rx_err),
     );
 
-    reg [7:0] uart_tx_data;
-    wire uart_tx_data_valid;
-    wire uart_tx_done;
-    wire uart_tx_err;
-    uart_tx uart_tx(
-        .i_clk(i_clk),
-        .i_en(state == STATE_DONE),
-        .i_data(uart_tx_data),
-        .o_tx(ftdi_rxd),
-        .o_valid(uart_tx_data_valid),
-        .o_done(uart_tx_done),
-        .o_err(uart_tx_err),
-    );
-
     wire cpu_done;
     wire cpu_err;
     cpu cpu(
@@ -72,15 +59,15 @@ module top(input wire clk_25mhz,
                 STATE_INIT: begin
                     o_led[1] = 1; // orange led for init
 
-                    // If the serial module is done, transition to the exec state.
-                    if (reader_done) begin
-                        state = STATE_EXEC;
+                    // If the serial receiver is done, transition to the exec state.
+                    if (uart_rx_done) begin
+                        next_state <= STATE_EXEC;
                     end
 
                     // If the serial module had errors, transition to the error state.
-                    if (reader_err) begin
+                    if (uart_rx_err) begin
                         errs[ERRBIT_SER] = 1;
-                        state = STATE_ERRS;
+                        next_state <= STATE_ERRS;
                     end
                 end
 
@@ -90,12 +77,12 @@ module top(input wire clk_25mhz,
                     // If the CPU had errors, transition to the error state.
                     if (cpu_err) begin
                         errs[ERRBIT_CPU] = 1;
-                        state = STATE_ERRS;
+                        next_state <= STATE_ERRS;
                     end
 
                     // If the CPU is done, transition to the done state.
                     if (cpu_done) begin
-                        state = STATE_DONE;
+                        next_state <= STATE_DONE;
                     end
                 end
 
@@ -114,6 +101,7 @@ module top(input wire clk_25mhz,
                 end
 
         endcase
+        state = next_state;
     end
 
     wire timeout;
@@ -146,20 +134,28 @@ module uart_rx(input wire i_clk,
     localparam STATE_READ = 2'd1; // Reading data until end sequence.
     reg [2:0] state = STATE_WAIT;
 
+    // TODO: remove
+    reg [31:0] cycle_count = 0;
+    localparam DELAY = 32'hffffffff;
+
     always @(posedge i_clk) begin
         if (i_en) begin
             o_valid = 0;
             o_err = 0;
-            o_done = 1;
+            o_done = 0;
+            cycle_count <= cycle_count + 1;
+            if (cycle_count >= DELAY) begin
+                o_done = 0;
+            end
             case (state)
 
-                 STATE_WAIT: begin
-                     // TODO: listen for start
-                 end
+                STATE_WAIT: begin
+                    // TODO: listen for start
+                end
 
-                 STATE_READ: begin
-                     // TODO: listen for end
-                 end
+                STATE_READ: begin
+                    // TODO: listen for end
+                end
 
             endcase
         end
@@ -194,7 +190,7 @@ module cpu(input wire i_clk,
         if (i_en) begin
             // TODO
             o_err = 0;
-            o_done = 1;
+            o_done = 0;
         end
     end
 
