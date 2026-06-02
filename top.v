@@ -30,7 +30,7 @@ module top(input wire clk_25mhz,
     reg [7:0] uart_rx_data;
     wire uart_rx_data_valid;
     wire uart_rx_done;
-    wire uart_tx_err;
+    wire uart_rx_err;
     uart_rx uart_rx(
         .i_clk(i_clk),
         .i_en(state == STATE_INIT),
@@ -39,6 +39,20 @@ module top(input wire clk_25mhz,
         .o_valid(uart_rx_data_valid),
         .o_done(uart_rx_done),
         .o_err(uart_rx_err),
+    );
+
+    reg [7:0] uart_tx_data;
+    wire uart_tx_data_valid;
+    wire uart_tx_done;
+    wire uart_tx_err;
+    uart_tx uart_tx(
+        .i_clk(i_clk),
+        .i_en(state == STATE_DONE),
+        .i_data(uart_tx_data),
+        .o_tx(ftdi_rxd),
+        .o_valid(uart_tx_data_valid),
+        .o_done(uart_tx_done),
+        .o_err(uart_tx_err),
     );
 
     wire cpu_done;
@@ -135,7 +149,8 @@ module uart_rx(input wire i_clk,
     always @(posedge i_clk) begin
         if (i_en) begin
             o_valid = 0;
-            o_done = 0;
+            o_err = 0;
+            o_done = 1;
             case (state)
 
                  STATE_WAIT: begin
@@ -148,8 +163,23 @@ module uart_rx(input wire i_clk,
 
             endcase
         end
-        else begin
+    end
+
+endmodule
+
+module uart_tx(input wire i_clk,
+               input wire i_en,
+               input [7:0] i_data,
+               output wire o_tx,
+               output wire o_valid,
+               output wire o_done,
+               output wire o_err);
+
+    always @(posedge i_clk) begin
+        if (i_en) begin
             o_valid = 0;
+            o_err = 0;
+            o_done = 1;
         end
     end
 
@@ -163,12 +193,8 @@ module cpu(input wire i_clk,
     always @(posedge i_clk) begin
         if (i_en) begin
             // TODO
-            o_err = 1;
-            o_done = 0;
-        end
-        else begin
             o_err = 0;
-            o_done = 0;
+            o_done = 1;
         end
     end
 
