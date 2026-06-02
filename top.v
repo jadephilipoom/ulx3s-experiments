@@ -37,9 +37,23 @@ module top(input wire clk_25mhz,
         .i_en(state == STATE_INIT),
         .i_rx(ftdi_txd),
         .o_data(uart_rx_data),
-        .o_valid(uart_rx_data_valid),
+        .o_data_valid(uart_rx_data_valid),
         .o_done(uart_rx_done),
         .o_err(uart_rx_err),
+    );
+
+    reg [7:0] uart_tx_data;
+    wire uart_tx_data_valid;
+    wire uart_tx_done;
+    wire uart_tx_err;
+    uart_tx uart_tx(
+        .i_clk(i_clk),
+        .i_en(state == STATE_DONE),
+        .i_data(uart_tx_data),
+        .i_data_valid(uart_tx_data_valid),
+        .o_tx(ftdi_txd),
+        .o_done(uart_tx_done),
+        .o_err(uart_tx_err),
     );
 
     wire cpu_done;
@@ -67,7 +81,6 @@ module top(input wire clk_25mhz,
                     // If the serial module had errors, transition to the error state.
                     if (uart_rx_err) begin
                         errs[ERRBIT_SER] = 1;
-                        next_state <= STATE_ERRS;
                     end
                 end
 
@@ -77,7 +90,6 @@ module top(input wire clk_25mhz,
                     // If the CPU had errors, transition to the error state.
                     if (cpu_err) begin
                         errs[ERRBIT_CPU] = 1;
-                        next_state <= STATE_ERRS;
                     end
 
                     // If the CPU is done, transition to the done state.
@@ -101,7 +113,13 @@ module top(input wire clk_25mhz,
                 end
 
         endcase
-        state = next_state;
+
+        if (errs != 0) begin
+            state <= STATE_ERRS;
+        end else begin
+            state <= next_state;
+        end
+
     end
 
     wire timeout;
@@ -116,7 +134,6 @@ module top(input wire clk_25mhz,
           // If the counter timed out, transition to the error state.
           if (timeout) begin
               errs[ERRBIT_CNT] = 1;
-              state = STATE_ERRS;
           end
     end
 
@@ -126,7 +143,7 @@ module uart_rx(input wire i_clk,
                input wire i_en,
                input wire i_rx,
                output [7:0] o_data,
-               output wire o_valid,
+               output wire o_data_valid,
                output wire o_done,
                output wire o_err);
 
@@ -135,12 +152,12 @@ module uart_rx(input wire i_clk,
     reg [2:0] state = STATE_WAIT;
 
     // TODO: remove
-    reg [31:0] cycle_count = 0;
-    localparam DELAY = 32'hffffffff;
+    reg [25:0] cycle_count = 0;
+    localparam DELAY = 26'hffffffff;
 
     always @(posedge i_clk) begin
         if (i_en) begin
-            o_valid = 0;
+            o_data_valid = 0;
             o_err = 0;
             o_done = 0;
             cycle_count <= cycle_count + 1;
@@ -166,14 +183,13 @@ endmodule
 module uart_tx(input wire i_clk,
                input wire i_en,
                input [7:0] i_data,
+               input wire i_data_valid,
                output wire o_tx,
-               output wire o_valid,
                output wire o_done,
                output wire o_err);
 
     always @(posedge i_clk) begin
         if (i_en) begin
-            o_valid = 0;
             o_err = 0;
             o_done = 1;
         end
@@ -186,11 +202,19 @@ module cpu(input wire i_clk,
            output wire o_err,
            output wire o_done);
 
+    // TODO: remove
+    reg [25:0] cycle_count = 0;
+    localparam DELAY = 26'hffffffff;
+
     always @(posedge i_clk) begin
         if (i_en) begin
             // TODO
             o_err = 0;
             o_done = 0;
+            cycle_count <= cycle_count + 1;
+            if (cycle_count >= DELAY) begin
+                o_done = 1;
+            end
         end
     end
 
@@ -202,9 +226,10 @@ module cycle_counter(input wire i_clk,
                      output wire o_err);
 
     reg [63:0] cycle_count = 0;
-    localparam TIMEOUT = 64'hffffffff;
+    localparam TIMEOUT = 64'hffffffffffffffff;
 
     always @(posedge i_clk) begin
+        o_err = 0;
         if (i_en) begin
             cycle_count <= cycle_count + 1;
             if (cycle_count >= TIMEOUT) begin
