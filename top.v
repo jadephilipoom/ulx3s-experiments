@@ -42,17 +42,15 @@ module top(input wire clk_25mhz,
         .o_err(uart_rx_err),
     );
 
-    reg [7:0] uart_tx_data;
-    wire uart_tx_data_valid;
-    wire uart_tx_done;
+    reg [7:0] uart_tx_data = 8'h78;
+    wire uart_tx_data_valid = 1;
     wire uart_tx_err;
     uart_tx uart_tx(
         .i_clk(i_clk),
         .i_en(state == STATE_DONE),
         .i_data(uart_tx_data),
         .i_data_valid(uart_tx_data_valid),
-        .o_tx(ftdi_txd),
-        .o_done(uart_tx_done),
+        .o_tx(ftdi_rxd),
         .o_err(uart_tx_err),
     );
 
@@ -122,10 +120,12 @@ module top(input wire clk_25mhz,
 
     end
 
+    reg [63:0] cycle_count;
     wire timeout;
     cycle_counter cycle_counter(
         .i_clk(i_clk),
         .i_en(state != STATE_DONE && state != STATE_ERRS),
+        .o_count(cycle_count),
         .o_err(timeout),
     );
 
@@ -153,7 +153,7 @@ module uart_rx(input wire i_clk,
 
     // TODO: remove
     reg [25:0] cycle_count = 0;
-    localparam DELAY = 26'hffffffff;
+    localparam DELAY = 26'h3ffffff;
 
     always @(posedge i_clk) begin
         if (i_en) begin
@@ -185,13 +185,53 @@ module uart_tx(input wire i_clk,
                input [7:0] i_data,
                input wire i_data_valid,
                output wire o_tx,
-               output wire o_done,
                output wire o_err);
+
+    localparam STATE_WAIT = 1'd0;
+    localparam STATE_SEND = 1'd1;
+    reg [1:0] state = STATE_WAIT;
+
+    reg [9:0] send_data;
+    reg [3:0] send_bits;
+    reg [31:0] send_hold;
+
+    // Baud rate 115200, clock 25MHz
+    localparam HOLD_CYCLES = 25000000 / 115200;
+
+    assign o_tx = send_data[0];
 
     always @(posedge i_clk) begin
         if (i_en) begin
             o_err = 0;
-            o_done = 1;
+            case (state)
+
+                STATE_WAIT: begin
+                    if (i_data_valid) begin
+                        send_data <= { 1'b1, i_data, 1'b0 };
+                        send_bits <= 10;
+                        send_hold <= HOLD_CYCLES;
+                        state <= STATE_SEND;
+                    end else begin
+                        send_data <= ~0;
+                    end
+                end
+
+                STATE_SEND: begin
+                    if (send_hold == 0) begin
+                        if (send_bits == 0) begin
+                            state <= STATE_WAIT;
+                        end else begin
+                            send_data <= { 1'b1, send_data[9:1] };
+                            send_bits <= send_bits - 1;
+                            send_hold <= HOLD_CYCLES;
+                        end
+                    end
+                    else begin
+                        send_hold <= send_hold - 1;
+                    end
+                end
+
+            endcase
         end
     end
 
@@ -204,7 +244,7 @@ module cpu(input wire i_clk,
 
     // TODO: remove
     reg [25:0] cycle_count = 0;
-    localparam DELAY = 26'hffffffff;
+    localparam DELAY = 26'h3ffffff;
 
     always @(posedge i_clk) begin
         if (i_en) begin
@@ -223,16 +263,18 @@ endmodule
 // Cycle count incrementer.
 module cycle_counter(input wire i_clk,
                      input wire i_en,
+                     output [63:0] o_count,
                      output wire o_err);
 
-    reg [63:0] cycle_count = 0;
-    localparam TIMEOUT = 64'hffffffffffffffff;
+    reg [63:0] count = 0;
+    assign o_count = count;
+    localparam MAX_COUNT = 64'hffffffffffffffff;
 
     always @(posedge i_clk) begin
         o_err = 0;
         if (i_en) begin
-            cycle_count <= cycle_count + 1;
-            if (cycle_count >= TIMEOUT) begin
+            count <= count + 1;
+            if (count >= MAX_COUNT) begin
                 // Counter overflow.
                 o_err = 1;
             end
