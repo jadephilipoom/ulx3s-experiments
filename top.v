@@ -145,7 +145,7 @@ module uart_rx(input wire i_clk,
             o_done = 0;
             cycle_count <= cycle_count + 1;
             if (cycle_count >= DELAY) begin
-                o_done = 0;
+                o_done = 1;
             end
             case (state)
 
