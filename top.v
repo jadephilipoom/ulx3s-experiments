@@ -28,6 +28,11 @@ module top(input wire clk_25mhz,
     localparam ERRBIT_MEM = 2;  // Error from the memory module.
     reg [3:0] errs = 0;
 
+    // FIFO for data to send via serial.
+    localparam UART_TX_FIFO_DEPTH = 32;
+    reg [(UART_TX_FIFO_DEPTH*8)-1:0] uart_tx_fifo;
+    reg [4:0] uart_tx_fifo_bytelength = 0;
+
     reg [7:0] uart_rx_data;
     wire uart_rx_data_valid;
     wire uart_rx_done;
@@ -42,8 +47,9 @@ module top(input wire clk_25mhz,
         .o_err(uart_rx_err),
     );
 
-    reg [7:0] uart_tx_data = 8'h78;
-    wire uart_tx_data_valid = 1;
+    reg [7:0] uart_tx_data;
+    wire uart_tx_data_valid = 0;
+    wire uart_tx_ready;
     wire uart_tx_err;
     uart_tx uart_tx(
         .i_clk(i_clk),
@@ -51,6 +57,7 @@ module top(input wire clk_25mhz,
         .i_data(uart_tx_data),
         .i_data_valid(uart_tx_data_valid),
         .o_tx(ftdi_rxd),
+        .o_ready(uart_tx_ready),
         .o_err(uart_tx_err),
     );
 
@@ -90,24 +97,40 @@ module top(input wire clk_25mhz,
                         errs[ERRBIT_CPU] = 1;
                     end
 
-                    // If the CPU is done, transition to the done state.
+                    // If the CPU is done, transition to the done state and print a message.
                     if (cpu_done) begin
+                        uart_tx_fifo[39:0] <= 40'h646f6e6521; // 'done!'
+                        uart_tx_fifo_bytelength <= 5;
                         next_state <= STATE_DONE;
                     end
                 end
 
                 STATE_DONE: begin
                     o_led[2] = 1; // green led for done
+                    o_led[6] = uart_tx_fifo_bytelength > 0;
+                    o_led[7] = uart_tx_ready;
+
+                    // If the UART transmitter is ready and there is data in the FIFO, send it.
+                    if (uart_tx_ready && uart_tx_fifo_bytelength > 0) begin
+                        uart_tx_data <= uart_tx_fifo[7:0];
+                        uart_tx_data_valid <= 1;
+                        uart_tx_fifo <= { uart_tx_fifo[7:0], uart_tx_fifo[39:8] };
+                        /*
+                        uart_tx_fifo <= { 8'h00, uart_tx_fifo[(UART_TX_FIFO_LENGTH*8)-1:8] };
+                        uart_tx_fifo_bytelength <= uart_tx_fifo_bytelength - 1;
+                        */
+                    end
                 end
 
                 STATE_ERRS: begin
                     o_led[0] = 1; // red led for errors
 
                     // Set additional LEDs to error flags.
-                    o_led[4] = errs[0];
-                    o_led[5] = errs[1];
-                    o_led[6] = errs[2];
-                    o_led[7] = errs[3];
+                    // TODO: uncomment
+                    // o_led[4] = errs[0];
+                    // o_led[5] = errs[1];
+                    // o_led[6] = errs[2];
+                    // o_led[7] = errs[3];
                 end
 
         endcase
@@ -152,8 +175,8 @@ module uart_rx(input wire i_clk,
     reg [2:0] state = STATE_WAIT;
 
     // TODO: remove
-    reg [25:0] cycle_count = 0;
-    localparam DELAY = 26'h3ffffff;
+    reg [24:0] cycle_count = 0;
+    localparam DELAY = 25'h3ffffff;
 
     always @(posedge i_clk) begin
         if (i_en) begin
@@ -185,6 +208,7 @@ module uart_tx(input wire i_clk,
                input [7:0] i_data,
                input wire i_data_valid,
                output wire o_tx,
+               output wire o_ready,
                output wire o_err);
 
     localparam STATE_WAIT = 1'd0;
@@ -192,13 +216,14 @@ module uart_tx(input wire i_clk,
     reg [1:0] state = STATE_WAIT;
 
     reg [9:0] send_data;
-    reg [3:0] send_bits;
+    reg [3:0] send_bits = 0;
     reg [31:0] send_hold;
 
     // Baud rate 115200, clock 25MHz
     localparam HOLD_CYCLES = 25000000 / 115200;
 
     assign o_tx = send_data[0];
+    assign o_ready = i_en && (send_bits == 0);
 
     always @(posedge i_clk) begin
         if (i_en) begin
@@ -213,6 +238,7 @@ module uart_tx(input wire i_clk,
                         state <= STATE_SEND;
                     end else begin
                         send_data <= ~0;
+                        send_bits <= 0;
                     end
                 end
 
@@ -243,8 +269,8 @@ module cpu(input wire i_clk,
            output wire o_done);
 
     // TODO: remove
-    reg [25:0] cycle_count = 0;
-    localparam DELAY = 26'h3ffffff;
+    reg [24:0] cycle_count = 0;
+    localparam DELAY = 25'h3ffffff;
 
     always @(posedge i_clk) begin
         if (i_en) begin
