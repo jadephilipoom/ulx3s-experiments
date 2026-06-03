@@ -49,12 +49,13 @@ module top(input wire clk_25mhz,
         .o_err(uart_rx_err),
     );
 
+    wire uart_tx_en = (state == STATE_DONE);
     wire uart_tx_data_valid;
     wire uart_tx_ready;
     wire uart_tx_err;
     uart_tx uart_tx(
         .i_clk(i_clk),
-        .i_en(state == STATE_DONE),
+        .i_en(uart_tx_en),
         .i_data(uart_tx_fifo[uart_tx_fifo_offset]),
         .i_data_valid(uart_tx_data_valid),
         .o_tx(ftdi_rxd),
@@ -93,11 +94,6 @@ module top(input wire clk_25mhz,
                     // If the serial receiver is done, transition to the exec state.
                     if (uart_rx_done) begin
                         next_state <= STATE_EXEC;
-                    end
-
-                    // If the serial module had errors, transition to the error state.
-                    if (uart_rx_err) begin
-                        errs[ERRBIT_SER] = 1;
                     end
                 end
 
@@ -184,7 +180,7 @@ module top(input wire clk_25mhz,
         endcase
 
         errs[ERRBIT_CNT] <= cycle_counter_en && cycle_counter_err;
-        // errs[ERRBIT_SER]
+        errs[ERRBIT_SER] <= (uart_rx_en && uart_rx_err);
         // errs[ERRBIT_CPU]
         // errs[ERRBIT_MEM]
         if (errs != 0) begin
