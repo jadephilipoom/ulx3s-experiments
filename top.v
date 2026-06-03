@@ -98,7 +98,7 @@ module top(input wire clk_25mhz,
                     uart_tx_data_valid <= 0;
 
                     // If the serial receiver is done, transition to the exec state.
-                    if (uart_rx_done) begin
+                    if (uart_rx_en && uart_rx_done) begin
                         next_state <= STATE_EXEC;
                     end
                 end
@@ -107,7 +107,7 @@ module top(input wire clk_25mhz,
                     o_led[3] = 1; // blue led for exec
 
                     // If the CPU is done, transition to the done state and print a message.
-                    if (cpu_done) begin
+                    if (cpu_en && cpu_done) begin
                         uart_tx_fifo[uart_tx_fifo_offset + 0]  <= 8'h64; // 'd' 
                         uart_tx_fifo[uart_tx_fifo_offset + 1]  <= 8'h6f; // 'o'
                         uart_tx_fifo[uart_tx_fifo_offset + 2]  <= 8'h6e; // 'n'
