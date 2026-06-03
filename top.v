@@ -25,7 +25,7 @@ module top(input wire clk_25mhz,
     localparam ERRBIT_CNT = 0;  // Error from the cycle counter.
     localparam ERRBIT_SER = 2;  // Error from the serial module.
     localparam ERRBIT_CPU = 1;  // Error from the CPU module.
-    localparam ERRBIT_MEM = 2;  // Error from the memory module.
+    localparam ERRBIT_MEM = 3;  // Error from the memory module.
     reg [3:0] errs = 0;
 
     // FIFO for data to send via serial.
@@ -34,13 +34,14 @@ module top(input wire clk_25mhz,
     reg [4:0] uart_tx_fifo_bytelength = 0;
     reg [4:0] uart_tx_fifo_offset = 0;
 
+    wire uart_rx_en = (state == STATE_INIT);
     reg [7:0] uart_rx_data;
     wire uart_rx_data_valid;
     wire uart_rx_done;
     wire uart_rx_err;
     uart_rx uart_rx(
         .i_clk(i_clk),
-        .i_en(state == STATE_INIT),
+        .i_en(uart_rx_en),
         .i_rx(ftdi_txd),
         .o_data(uart_rx_data),
         .o_data_valid(uart_rx_data_valid),
@@ -174,15 +175,18 @@ module top(input wire clk_25mhz,
                     uart_tx_data_valid <= 0;
 
                     // Set additional LEDs to error flags.
-                    // TODO: uncomment
-                    // o_led[4] = errs[0];
-                    // o_led[5] = errs[1];
-                    // o_led[6] = errs[2];
-                    // o_led[7] = errs[3];
+                    o_led[4] = errs[0];
+                    o_led[5] = errs[1];
+                    o_led[6] = errs[2];
+                    o_led[7] = errs[3];
                 end
 
         endcase
 
+        // errs[ERRBIT_CNT]
+        // errs[ERRBIT_SER]
+        // errs[ERRBIT_CPU]
+        // errs[ERRBIT_MEM]
         if (errs != 0) begin
             state <= STATE_ERRS;
         end else begin
