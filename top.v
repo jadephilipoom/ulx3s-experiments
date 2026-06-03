@@ -46,6 +46,7 @@ module top(input wire clk_25mhz,
     uart_rx uart_rx(
         .i_clk(i_clk),
         .i_en(uart_rx_en),
+        .i_rst(i_rst),
         .i_rx(ftdi_txd),
         .o_data(uart_rx_data),
         .o_data_valid(uart_rx_data_valid),
@@ -60,6 +61,7 @@ module top(input wire clk_25mhz,
     uart_tx uart_tx(
         .i_clk(i_clk),
         .i_en(uart_tx_en),
+        .i_rst(i_rst),
         .i_data(uart_tx_fifo[uart_tx_fifo_offset]),
         .i_data_valid(uart_tx_data_valid),
         .o_tx(ftdi_rxd),
@@ -171,7 +173,7 @@ module top(input wire clk_25mhz,
                     o_led[4] = errs[0];
                     o_led[5] = errs[1];
                     o_led[6] = errs[2];
-                    o_led[7] = errs[3];
+                    o_led[7] = i_rst; // errs[3];
                 end
 
         endcase
@@ -210,6 +212,7 @@ endmodule
 
 module uart_rx(input wire i_clk,
                input wire i_en,
+               input wire i_rst,
                input wire i_rx,
                output [7:0] o_data,
                output wire o_data_valid,
@@ -225,7 +228,13 @@ module uart_rx(input wire i_clk,
     localparam DELAY = 25'h3ffffff;
 
     always @(posedge i_clk) begin
-        if (i_en) begin
+        if (i_rst) begin
+            cycle_count <= 0;
+            state <= STATE_WAIT;
+            o_data_valid <= 0;
+            o_done <= 0;
+            o_err <= 0;
+        end else if (i_en) begin
             o_data_valid = 0;
             o_err = 0;
             o_done = 0;
@@ -251,6 +260,7 @@ endmodule
 
 module uart_tx(input wire i_clk,
                input wire i_en,
+               input wire i_rst,
                input [7:0] i_data,
                input wire i_data_valid,
                output wire o_tx,
