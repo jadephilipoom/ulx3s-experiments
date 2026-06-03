@@ -23,7 +23,7 @@ module top(input wire clk_25mhz,
     localparam STATE_DONE = 2'd2; // Program exited successfully (terminal state).
     localparam STATE_ERRS = 2'd3; // Crashed due to failures (terminal state).
     reg [1:0] state = STATE_INIT;
-    reg [1:0] next_state;
+    reg [1:0] next_state = STATE_INIT;
 
     // Error flags.
     localparam ERRBIT_CNT = 0;  // Error from the cycle counter.
@@ -176,7 +176,7 @@ module top(input wire clk_25mhz,
                     o_led[4] = errs[0];
                     o_led[5] = errs[1];
                     o_led[6] = errs[2];
-                    o_led[7] = i_rst; // errs[3];
+                    o_led[7] = errs[3];
                 end
 
         endcase
@@ -190,11 +190,13 @@ module top(input wire clk_25mhz,
         // Check for errors or reset that would intercept the state change.
         if (i_rst) begin
             state <= STATE_INIT;
+            next_state <= STATE_INIT;
             errs <= 0;
             uart_tx_fifo_bytelength <= 0;
             uart_tx_fifo_offset <= 0;
         end else if (errs) begin
             state <= STATE_ERRS;
+            next_state <= STATE_ERRS;
         end else begin
             state <= next_state;
         end
