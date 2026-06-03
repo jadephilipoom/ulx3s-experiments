@@ -14,7 +14,7 @@ module top(input wire clk_25mhz,
     // - 1, 5: orange
     // - 2, 6: green
     // - 3, 7: blue
-    reg [7:0] o_led = 0;
+    reg [7:0] o_led;
     assign led = o_led;
 
    // Set up basic state machine.
@@ -99,10 +99,7 @@ module top(input wire clk_25mhz,
 
     // Main state machine.
     always @(posedge i_clk) begin
-          // o_led[7:0] = 0;
-          o_led[5:0] = 0;
-          o_led[6] = cycle_count > 0;
-          o_led[7] = cycle_counter_en;
+          o_led[7:0] = 0;
           case (state)
 
                 STATE_INIT: begin
@@ -190,7 +187,7 @@ module top(input wire clk_25mhz,
                     o_led[4] = errs[0];
                     o_led[5] = errs[1];
                     o_led[6] = errs[2];
-                    // o_led[7] = errs[3]; TODO
+                    o_led[7] = errs[3];
                 end
 
         endcase
@@ -368,7 +365,6 @@ module cycle_counter(input wire i_clk,
                      output wire o_err);
 
     reg [63:0] count = 0;
-    assign o_count = count;
     localparam MAX_COUNT = 64'hffffffffffffffff;
 
     always @(posedge i_clk) begin
@@ -381,6 +377,7 @@ module cycle_counter(input wire i_clk,
                 // Counter overflow.
                 o_err = 1;
             end
+            o_count = count;
         end
     end
 
