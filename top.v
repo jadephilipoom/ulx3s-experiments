@@ -364,8 +364,13 @@ module cycle_counter(input wire i_clk,
                      output [63:0] o_count,
                      output wire o_err);
 
-    reg [63:0] count = 0;
+    reg [63:0] count;
     localparam MAX_COUNT = 64'hffffffffffffffff;
+
+    initial begin
+        count = 0;
+        o_err = 0;
+    end
 
     always @(posedge i_clk) begin
         if (i_rst) begin
