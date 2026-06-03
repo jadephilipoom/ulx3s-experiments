@@ -35,7 +35,6 @@ module top(input wire clk_25mhz,
     assign uart_rx_en = (state == STATE_INIT);
     wire [7:0] uart_rx_data;
     wire uart_rx_data_valid;
-    wire uart_rx_done;
     wire uart_rx_err;
     uart_rx uart_rx(
         .i_clk(i_clk),
@@ -44,7 +43,6 @@ module top(input wire clk_25mhz,
         .i_rx(ftdi_txd),
         .o_data(uart_rx_data),
         .o_data_valid(uart_rx_data_valid),
-        .o_done(uart_rx_done),
         .o_err(uart_rx_err),
     );
 
@@ -82,6 +80,12 @@ module top(input wire clk_25mhz,
     reg inc_cycle_count;
     reg cycle_count_err;
     localparam MAX_CYCLE_COUNT = 64'hffffffffffffffff;
+
+    // Set up a counter for the number of serial bytes read in the init phase.
+    reg [31:0] loaded_bytes;
+    reg load_mem_byte;
+    localparam INIT_LOAD_BYTES = 4;
+    reg [7:0] mem [0:INIT_LOAD_BYTES-1]; 
 
     // Tracking for printing message at the end of exec. Cycle count is printed
     // in hex between prefix and suffix.
@@ -133,6 +137,7 @@ module top(input wire clk_25mhz,
         // later.
         o_led[7:0] = 0;
         decrement_bit_offset = 0;
+        load_mem_byte = 0;
         clear_bytes_sent = 0;
         inc_bytes_sent = 0;
         set_uart_tx_data_valid = 0;
@@ -146,9 +151,13 @@ module top(input wire clk_25mhz,
                 o_led[1] = 1;
                 clr_uart_tx_data_valid = 1;
 
-                // If the serial receiver is done, transition to the exec state.
-                if (uart_rx_en && uart_rx_done) begin
+                // If we got all the bytes we need, transition to the exec state.
+                if (loaded_bytes >= INIT_LOAD_BYTES) begin
                     next_state = STATE_EXEC;
+                end else if (uart_rx_en && uart_rx_data_valid) begin
+                    // If a new byte is ready from the serial receiver, write
+                    // it into memory.
+                    load_mem_byte = 1;
                 end
             end
             STATE_EXEC: begin
@@ -219,6 +228,7 @@ module top(input wire clk_25mhz,
         if (i_rst) begin
             state <= STATE_INIT;
             errs <= 0;
+            loaded_bytes <= 0;
             done_msg_bytes_sent <= 0;
             cycle_count_bit_offset <= 6'd60;
             cycle_count <= 0;
@@ -228,6 +238,10 @@ module top(input wire clk_25mhz,
             state <= next_state;
             if (inc_cycle_count) begin
                 cycle_count <= cycle_count + 1;
+            end
+            if (load_mem_byte) begin
+                mem[loaded_bytes] <= uart_rx_data;
+                loaded_bytes <= loaded_bytes + 1;
             end
             if (decrement_bit_offset) begin
                 cycle_count_bit_offset <= cycle_count_bit_offset - 4;
@@ -255,40 +269,56 @@ module uart_rx(input wire i_clk,
                input wire i_rx,
                output [7:0] o_data,
                output reg o_data_valid,
-               output reg o_done,
                output reg o_err);
 
-    localparam STATE_WAIT = 2'd0; // Waiting for start sequence.
-    localparam STATE_READ = 2'd1; // Reading data until end sequence.
-    reg [2:0] state = STATE_WAIT;
+    localparam STATE_WAIT = 2'd0; // Waiting for start bit.
+    localparam STATE_READ = 2'd1; // Reading data.
+    reg [1:0] state = STATE_WAIT;
 
-    // TODO: remove
-    reg [24:0] cycle_count = 0;
-    localparam DELAY = 25'h1ffffff;
+    reg [7:0] recv_data;
+    reg [3:0] recv_bits;
+    reg [31:0] hold_count; // Measures how long the current bit has been held
+
+    // Baud rate 115200, clock 25MHz
+    localparam HOLD_CYCLES = 25000000 / 115200;
+
+    assign o_data = recv_data;
 
     always @(posedge i_clk) begin
         if (i_rst) begin
-            cycle_count <= 0;
             state <= STATE_WAIT;
             o_data_valid <= 0;
-            o_done <= 0;
             o_err <= 0;
         end else if (i_en) begin
-            o_data_valid <= 0;
-            o_err <= 0;
-            o_done <= 0;
-            cycle_count <= cycle_count + 1;
-            if (cycle_count >= DELAY) begin
-                o_done <= 1;
-            end
             case (state)
 
                 STATE_WAIT: begin
-                    // TODO: listen for start
+                    o_data_valid <= 0;
+                    // If we hear a 0, transition to the read state.
+                    if (!i_rx) begin
+                        recv_data <= 0;
+                        recv_bits <= 0;
+                        hold_count <= 0;
+                        state <= STATE_READ;
+                    end
                 end
 
                 STATE_READ: begin
-                    // TODO: listen for end
+                    if (hold_count == HOLD_CYCLES) begin
+                        if (recv_bits == 8) begin
+                            state <= STATE_WAIT;
+                            o_data_valid <= 1;
+                            // Report an error if the stop bit is not high as expected.
+                            o_err <= !i_rx;
+                        end else begin
+                            recv_data <= { i_rx, recv_data[7:1] };
+                            recv_bits <= recv_bits + 1;
+                            hold_count <= 0;
+                        end
+                    end
+                    else begin
+                        hold_count <= hold_count + 1;
+                    end
                 end
 
             endcase
