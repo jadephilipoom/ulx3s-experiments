@@ -79,8 +79,8 @@ module top(input wire clk_25mhz,
 
     // Set up cycle counter.
     reg [63:0] cycle_count = 0;
-    reg inc_cycle_counter;
-    wire cycle_counter_err;
+    reg inc_cycle_count;
+    wire cycle_count_err;
     localparam MAX_CYCLE_COUNT = 64'hffffffffffffffff;
 
     // Tracking for printing message at the end of exec. Cycle count is printed
@@ -144,7 +144,7 @@ module top(input wire clk_25mhz,
         // your concepts into syntactically clean verilog.
         set_uart_tx_data_valid = 0;
         clr_uart_tx_data_valid = 0;
-        inc_cycle_counter = 0;
+        inc_cycle_count = 0;
         uart_tx_data = 0;
         next_state = state; // sets a default value for state.
         // we're using "blocking" operations here, so the values are applied "as you read the code"
@@ -167,11 +167,11 @@ module top(input wire clk_25mhz,
             end
             STATE_EXEC: begin
                 o_led[3] = 1;
-                inc_cycle_counter = 1;
+                inc_cycle_count = 1;
 
                 // Check if the cycle counter will overflow.
                 if (cycle_count >= MAX_CYCLE_COUNT) begin
-                    cycle_counter_err = 1;
+                    cycle_count_err = 1;
                 end
 
                 // If the CPU is done, transition to the done state and print a message.
@@ -211,8 +211,6 @@ module top(input wire clk_25mhz,
                 clr_uart_tx_data_valid = 1;
             end
         endcase
-
-        o_led[7] = (cycle_count != 0);
     end
 
     // Main state machine. This triggers on every clock edge, and observes all the blocking operations
@@ -220,7 +218,7 @@ module top(input wire clk_25mhz,
     // of combinational logic has fresh inputs.
     always @(posedge i_clk) begin
         // Update error bits.
-        errs[ERRBIT_CNT] <= errs[ERRBIT_CNT] || (cycle_counter_en && cycle_counter_err);
+        errs[ERRBIT_CNT] <= errs[ERRBIT_CNT] || (inc_cycle_count && cycle_count_err);
         errs[ERRBIT_SER] <= errs[ERRBIT_SER] || ((uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err));
         errs[ERRBIT_CPU] <= errs[ERRBIT_CPU] || (cpu_en && cpu_err);
         errs[ERRBIT_MEM] <= errs[ERRBIT_MEM] || 0; // TODO
@@ -236,12 +234,12 @@ module top(input wire clk_25mhz,
             errs <= 0;
             done_msg_bytes_sent <= 0;
             cycle_count_bit_offset <= 6'd60;
-            cycle_counter <= 0;
+            cycle_count <= 0;
         end else if (errs) begin
             state <= STATE_ERRS;
         end else begin
             state <= next_state;
-            if (inc_cycle_counter) begin
+            if (inc_cycle_count) begin
                 cycle_count <= cycle_count + 1;
             end
             if (decrement_bit_offset) begin
