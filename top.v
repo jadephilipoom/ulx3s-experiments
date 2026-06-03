@@ -96,9 +96,11 @@ module top(input wire clk_25mhz,
     reg [31:0] done_msg_bytes_sent;
     reg [7:0] done_msg_prefix_chars [0:16];
     reg [7:0] done_msg_suffix_chars [0:1];
+    reg [6:0] cycle_count_bit_offset;
     initial begin
         done_msg_bytes_sent = 0;
         uart_tx_data_valid = 0;
+        cycle_count_bit_offset = 6'd60;
         done_msg_prefix_chars[ 0] = 8'h64; // 'd'
         done_msg_prefix_chars[ 1] = 8'h6f; // 'o'
         done_msg_prefix_chars[ 2] = 8'h6e; // 'n'
@@ -164,8 +166,8 @@ module top(input wire clk_25mhz,
                         if (done_msg_bytes_sent < 17) begin
                             uart_tx_data <= done_msg_prefix_chars[done_msg_bytes_sent];
                         end else if (done_msg_bytes_sent < 33) begin
-                            // uart_tx_data <= ascii_hex_nibble(cycle_count[((done_msg_bytes_sent - 17)*4)+3:(done_msg_bytes_sent - 17)*4]);
-                            uart_tx_data <= ascii_hex_nibble(done_msg_bytes_sent[3:0]);
+                            uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
+                            cycle_count_bit_offset <= cycle_count_bit_offset - 4;
                         end else if (done_msg_bytes_sent < 35) begin
                             uart_tx_data <= done_msg_suffix_chars[done_msg_bytes_sent - 33];
                         end else begin
@@ -203,6 +205,7 @@ module top(input wire clk_25mhz,
             uart_tx_fifo_bytelength <= 0;
             uart_tx_fifo_offset <= 0;
             done_msg_bytes_sent <= 0;
+            cycle_count_bit_offset <= 6'd60;
         end else if (errs) begin
             state <= STATE_ERRS;
             next_state <= STATE_ERRS;
@@ -335,7 +338,7 @@ module cpu(input wire i_clk,
 
     // TODO: remove
     reg [24:0] cycle_count = 0;
-    localparam DELAY = 25'h1ffff00;
+    localparam DELAY = 25'h1ffabcd;
 
     always @(posedge i_clk) begin
         if (i_rst) begin
