@@ -55,14 +55,15 @@ module top(input wire clk_25mhz,
     );
 
     assign uart_tx_en = (state == STATE_DONE);
-    wire uart_tx_data_valid;
+    reg [7:0] uart_tx_data;
+    reg uart_tx_data_valid;
     wire uart_tx_ready;
     wire uart_tx_err;
     uart_tx uart_tx(
         .i_clk(i_clk),
         .i_en(uart_tx_en),
         .i_rst(i_rst),
-        .i_data(uart_tx_fifo[uart_tx_fifo_offset]),
+        .i_data(uart_tx_data),
         .i_data_valid(uart_tx_data_valid),
         .o_tx(ftdi_rxd),
         .o_ready(uart_tx_ready),
@@ -90,37 +91,35 @@ module top(input wire clk_25mhz,
         .o_err(cycle_counter_err),
     );
 
-    // Counters to keep track of data sent/received from serial so far.
-    reg [31:0] uart_tx_bytes;
-
+    // Tracking for printing message at the end of exec. Cycle count is printed
+    // in hex between prefix and suffix.
+    reg [31:0] done_msg_bytes_sent;
+    reg [7:0] done_msg_prefix_chars [0:16];
+    reg [7:0] done_msg_suffix_chars [0:1];
     initial begin
-        uart_tx_bytes = 0;
-    end
+        done_msg_bytes_sent = 0;
+        uart_tx_data_valid = 0;
+        done_msg_prefix_chars[ 0] = 8'h64; // 'd'
+        done_msg_prefix_chars[ 1] = 8'h6f; // 'o'
+        done_msg_prefix_chars[ 2] = 8'h6e; // 'n'
+        done_msg_prefix_chars[ 3] = 8'h65; // 'e'
+        done_msg_prefix_chars[ 4] = 8'h21; // '!'
+        done_msg_prefix_chars[ 5] = 8'h0d; // '\r'
+        done_msg_prefix_chars[ 6] = 8'h0a; // '\n'
+        done_msg_prefix_chars[ 7] = 8'h63; // 'c'
+        done_msg_prefix_chars[ 8] = 8'h79; // 'y'
+        done_msg_prefix_chars[ 9] = 8'h63; // 'c'
+        done_msg_prefix_chars[10] = 8'h6c; // 'l'
+        done_msg_prefix_chars[11] = 8'h65; // 'e'
+        done_msg_prefix_chars[12] = 8'h73; // 's'
+        done_msg_prefix_chars[13] = 8'h3a; // ':'
+        done_msg_prefix_chars[14] = 8'h20; // ' '
+        done_msg_prefix_chars[15] = 8'h30; // '0'
+        done_msg_prefix_chars[16] = 8'h78; // 'x'
 
-    // Printing constants.
-    reg [7:0] done_chars [0:4] = {
-        8'h64, // 'd'
-        8'h6f, // 'o'
-        8'h6e, // 'n'
-        8'h65, // 'e'
-        8'h21, // '!'
-    };
-    reg [7:0] newline_chars [0:1] = {
-        8'h0d, // '\r'
-        8'h0a, // '\n'
-    };
-    reg [7:0] cycles_prefix_chars [0:9] = {
-        8'h63; // 'c'
-        8'h79; // 'y'
-        8'h63; // 'c'
-        8'h6c; // 'l'
-        8'h65; // 'e'
-        8'h73; // 's'
-        8'h3a; // ':'
-        8'h20; // ' '
-        8'h30; // '0'
-        8'h78; // 'x'
-    };
+        done_msg_suffix_chars[ 0] = 8'h0d; // '\r'
+        done_msg_suffix_chars[ 1] = 8'h0a; // '\n'
+    end
 
     // Function for converting a nibble to ASCII hex.
     function [7:0] ascii_hex_nibble(input [3:0] n);
@@ -149,76 +148,30 @@ module top(input wire clk_25mhz,
 
                     // If the CPU is done, transition to the done state and print a message.
                     if (cpu_en && cpu_done) begin
-                        /*
-                        uart_tx_fifo[uart_tx_fifo_offset + 0]  = 8'h64; // 'd'
-                        uart_tx_fifo[uart_tx_fifo_offset + 1]  = 8'h6f; // 'o'
-                        uart_tx_fifo[uart_tx_fifo_offset + 2]  = 8'h6e; // 'n'
-                        uart_tx_fifo[uart_tx_fifo_offset + 3]  = 8'h65; // 'e'
-                        uart_tx_fifo[uart_tx_fifo_offset + 4]  = 8'h21; // '!'
-                        uart_tx_fifo[uart_tx_fifo_offset + 5]  = 8'h0d; // '\r'
-                        uart_tx_fifo[uart_tx_fifo_offset + 6]  = 8'h0a; // '\n'
-
-                        uart_tx_fifo[uart_tx_fifo_offset + 7]  = 8'h63; // 'c'
-                        uart_tx_fifo[uart_tx_fifo_offset + 8]  = 8'h79; // 'y'
-                        uart_tx_fifo[uart_tx_fifo_offset + 9]  = 8'h63; // 'c'
-                        uart_tx_fifo[uart_tx_fifo_offset + 10] = 8'h6c; // 'l'
-                        uart_tx_fifo[uart_tx_fifo_offset + 11] = 8'h65; // 'e'
-                        uart_tx_fifo[uart_tx_fifo_offset + 12] = 8'h73; // 's'
-                        uart_tx_fifo[uart_tx_fifo_offset + 13] = 8'h3a; // ':'
-                        uart_tx_fifo[uart_tx_fifo_offset + 14] = 8'h20; // ' '
-                        uart_tx_fifo[uart_tx_fifo_offset + 15] = 8'h30; // '0'
-                        uart_tx_fifo[uart_tx_fifo_offset + 16] = 8'h78; // 'x'
-                        */
-
-                        uart_tx_fifo[uart_tx_fifo_offset + 17] = cycle_count[15:8];
-                        uart_tx_fifo[uart_tx_fifo_offset + 18] = cycle_count[7:0];
-                        /*
-                        uart_tx_fifo[uart_tx_fifo_offset + 19] = 8'h0d; // '\r'
-                        uart_tx_fifo[uart_tx_fifo_offset + 20] = 8'h0a; // '\n'
-                        */
-
-                        /*
-                        uart_tx_fifo[uart_tx_fifo_offset + 17] = ascii_hex_nibble(cycle_count[63:60]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 18] = ascii_hex_nibble(cycle_count[59:56]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 19] = ascii_hex_nibble(cycle_count[55:52]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 20] = ascii_hex_nibble(cycle_count[51:48]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 21] = ascii_hex_nibble(cycle_count[47:44]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 22] = ascii_hex_nibble(cycle_count[43:40]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 23] = ascii_hex_nibble(cycle_count[39:36]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 24] = ascii_hex_nibble(cycle_count[35:32]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 25] = ascii_hex_nibble(cycle_count[31:28]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 26] = ascii_hex_nibble(cycle_count[27:24]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 27] = ascii_hex_nibble(cycle_count[23:20]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 28] = ascii_hex_nibble(cycle_count[19:16]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 29] = ascii_hex_nibble(cycle_count[15:12]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 30] = ascii_hex_nibble(cycle_count[11:8]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 31] = ascii_hex_nibble(cycle_count[7:4]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 32] = ascii_hex_nibble(cycle_count[3:0]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 33] = 8'h0d; // '\r'
-                        uart_tx_fifo[uart_tx_fifo_offset + 34] = 8'h0a; // '\n'
-                        */
-
-                        uart_tx_fifo_bytelength <= 21;
-                        uart_tx_data_valid <= 1;
                         next_state <= STATE_DONE;
+                        uart_tx_data <= done_msg_prefix_chars[0];
+                        uart_tx_data_valid <= 1;
+                        done_msg_bytes_sent <= 1;
                     end
                 end
 
                 STATE_DONE: begin
                     o_led[2] = 1; // green led for done
 
-                    // If the UART transmitter is ready and there is data in the FIFO, send it.
+                    // If the UART transmitter is ready and there is still
+                    // something to print, send the next byte.
                     if (uart_tx_ready && uart_tx_data_valid) begin
-                        if (uart_tx_fifo_bytelength <= 1) begin
+                        if (done_msg_bytes_sent < 17) begin
+                            uart_tx_data <= done_msg_prefix_chars[done_msg_bytes_sent];
+                        end else if (done_msg_bytes_sent < 33) begin
+                            // uart_tx_data <= ascii_hex_nibble(cycle_count[((done_msg_bytes_sent - 17)*4)+3:(done_msg_bytes_sent - 17)*4]);
+                            uart_tx_data <= ascii_hex_nibble(done_msg_bytes_sent[3:0]);
+                        end else if (done_msg_bytes_sent < 35) begin
+                            uart_tx_data <= done_msg_suffix_chars[done_msg_bytes_sent - 33];
+                        end begin
                             uart_tx_data_valid <= 0;
-                        end else begin
-                            if (uart_tx_fifo_offset == UART_TX_FIFO_DEPTH - 1) begin
-                                uart_tx_fifo_offset <= 0;
-                            end else begin
-                                uart_tx_fifo_offset <= uart_tx_fifo_offset + 1;
-                            end
-                            uart_tx_fifo_bytelength <= uart_tx_fifo_bytelength - 1;
                         end
+                        done_msg_bytes_sent <= done_msg_bytes_sent + 1;
                     end
                 end
 
@@ -249,6 +202,7 @@ module top(input wire clk_25mhz,
             errs <= 0;
             uart_tx_fifo_bytelength <= 0;
             uart_tx_fifo_offset <= 0;
+            done_msg_bytes_sent <= 0;
         end else if (errs) begin
             state <= STATE_ERRS;
             next_state <= STATE_ERRS;
@@ -414,43 +368,6 @@ module cycle_counter(input wire i_clk,
     initial begin
         count = 0;
         o_err = 0;
-    end
-
-    always @(posedge i_clk) begin
-        if (i_rst) begin
-            count = 0;
-            o_err = 0;
-        end else if (i_en) begin
-            count = count + 1;
-            if (count >= MAX_COUNT) begin
-                // Counter overflow.
-                o_err = 1;
-            end
-            o_count = count;
-        end
-    end
-
-endmodule
-
-// General-purpose fifo for bytes.
-module fifo(input wire i_clk,
-            input wire i_en,
-            input wire i_rst,
-            input [7:0] i_data,
-            input wire i_data_valid,
-            output [63:0] o_count,
-            output wire o_ready,
-            output wire o_err);
-
-    // TODO: make the capacity a parameter
-    localparam DEPTH = 64;
-    reg [7:0] entries [DEPTH:0];
-    reg [5:0] offset;
-    reg [6:0] length;
-
-    initial begin
-        offset = 0;
-        length = 0;
     end
 
     always @(posedge i_clk) begin
