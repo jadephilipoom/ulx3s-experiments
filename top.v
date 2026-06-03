@@ -100,11 +100,6 @@ module top(input wire clk_25mhz,
                 STATE_EXEC: begin
                     o_led[3] = 1; // blue led for exec
 
-                    // If the CPU had errors, transition to the error state.
-                    if (cpu_err) begin
-                        errs[ERRBIT_CPU] = 1;
-                    end
-
                     // If the CPU is done, transition to the done state and print a message.
                     if (cpu_done) begin
                         uart_tx_fifo[uart_tx_fifo_offset + 0]  <= 8'h64; // 'd' 
