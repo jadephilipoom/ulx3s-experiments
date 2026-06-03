@@ -69,11 +69,12 @@ module top(input wire clk_25mhz,
         .o_err(uart_tx_err),
     );
 
+    wire cpu_en = (state == STATE_EXEC);
     wire cpu_done;
     wire cpu_err;
     cpu cpu(
         .i_clk(i_clk),
-        .i_en(state == STATE_EXEC),
+        .i_en(cpu_en),
         .o_err(cpu_err),
         .o_done(cpu_done),
     );
@@ -168,6 +169,7 @@ module top(input wire clk_25mhz,
                 STATE_ERRS: begin
                     o_led[0] = 1; // red led for errors
                     uart_tx_data_valid <= 0;
+                    uart_tx_fifo_bytelength <= 0;
 
                     // Set additional LEDs to error flags.
                     o_led[4] = errs[0];
