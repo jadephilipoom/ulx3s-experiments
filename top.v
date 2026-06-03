@@ -172,11 +172,11 @@ module top(input wire clk_25mhz,
 
         endcase
 
-        errs[ERRBIT_CNT] <= cycle_counter_en && cycle_counter_err;
-        errs[ERRBIT_SER] <= (uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err);
-        errs[ERRBIT_CPU] <= cpu_en && cpu_err;
-        errs[ERRBIT_MEM] <= 0;
-        if (errs != 0) begin
+        errs[ERRBIT_CNT] <= errs[ERRBIT_CNT] || (cycle_counter_en && cycle_counter_err);
+        errs[ERRBIT_SER] <= errs[ERRBIT_SER] || ((uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err));
+        errs[ERRBIT_CPU] <= errs[ERRBIT_CPU] || (cpu_en && cpu_err);
+        errs[ERRBIT_MEM] <= errs[ERRBIT_MEM] || 0; // TODO
+        if (errs) begin
             state <= STATE_ERRS;
         end else begin
             state <= next_state;
