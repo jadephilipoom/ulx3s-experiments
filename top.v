@@ -30,8 +30,9 @@ module top(input wire clk_25mhz,
 
     // FIFO for data to send via serial.
     localparam UART_TX_FIFO_DEPTH = 32;
-    reg [(UART_TX_FIFO_DEPTH*8)-1:0] uart_tx_fifo;
+    reg [7:0] uart_tx_fifo [0:UART_TX_FIFO_DEPTH];
     reg [4:0] uart_tx_fifo_bytelength = 0;
+    reg [4:0] uart_tx_fifo_offset = 0;
 
     reg [7:0] uart_rx_data;
     wire uart_rx_data_valid;
@@ -47,14 +48,13 @@ module top(input wire clk_25mhz,
         .o_err(uart_rx_err),
     );
 
-    reg [7:0] uart_tx_data;
     wire uart_tx_data_valid;
     wire uart_tx_ready;
     wire uart_tx_err;
     uart_tx uart_tx(
         .i_clk(i_clk),
         .i_en(state == STATE_DONE),
-        .i_data(uart_tx_data),
+        .i_data(uart_tx_fifo[uart_tx_fifo_offset]),
         .i_data_valid(uart_tx_data_valid),
         .o_tx(ftdi_rxd),
         .o_ready(uart_tx_ready),
@@ -69,6 +69,16 @@ module top(input wire clk_25mhz,
         .o_err(cpu_err),
         .o_done(cpu_done),
     );
+
+    // Function for converting a nibble to ASCII hex.
+    function [7:0] ascii_hex_nibble;
+        input [3:0] nibble;
+        if (nibble < 4'd10) begin
+            ascii_hex_nibble <= 8'h30 + nibble;
+        end else begin
+            ascii_hex_nibble <= 8'h57 + nibble;
+        end
+    endfunction
 
     // Main state machine.
     always @(posedge i_clk) begin
@@ -100,9 +110,40 @@ module top(input wire clk_25mhz,
 
                     // If the CPU is done, transition to the done state and print a message.
                     if (cpu_done) begin
-                        // uart_tx_fifo[39:0] <= 40'h646f6e6521; // 'done!'
-                        // uart_tx_fifo_bytelength <= 5;
-                        uart_tx_data = 8'h61; // 'a'
+                        uart_tx_fifo[uart_tx_fifo_offset + 0]  <= 8'h64; // 'd' 
+                        uart_tx_fifo[uart_tx_fifo_offset + 1]  <= 8'h6f; // 'o'
+                        uart_tx_fifo[uart_tx_fifo_offset + 2]  <= 8'h6e; // 'n'
+                        uart_tx_fifo[uart_tx_fifo_offset + 3]  <= 8'h65; // 'e'
+                        uart_tx_fifo[uart_tx_fifo_offset + 4]  <= 8'h21; // '!'
+
+                        uart_tx_fifo[uart_tx_fifo_offset + 5]  <= 8'h20; // ' ' 
+                        uart_tx_fifo[uart_tx_fifo_offset + 6]  <= 8'h63; // 'c'
+                        uart_tx_fifo[uart_tx_fifo_offset + 7]  <= 8'h79; // 'y'
+                        uart_tx_fifo[uart_tx_fifo_offset + 8]  <= 8'h63; // 'c'
+                        uart_tx_fifo[uart_tx_fifo_offset + 9]  <= 8'h6c; // 'l'
+                        uart_tx_fifo[uart_tx_fifo_offset + 10] <= 8'h65; // 'e'
+                        uart_tx_fifo[uart_tx_fifo_offset + 11] <= 8'h73; // 's'
+                        uart_tx_fifo[uart_tx_fifo_offset + 12] <= 8'h3a; // ':'
+                        uart_tx_fifo[uart_tx_fifo_offset + 13] <= 8'h20; // ' '
+                        uart_tx_fifo[uart_tx_fifo_offset + 14] <= 8'h30; // '0'
+                        uart_tx_fifo[uart_tx_fifo_offset + 15] <= 8'h78; // 'x'
+                        uart_tx_fifo[uart_tx_fifo_offset + 16] <= ascii_hex_nibble(cycle_count[63:60]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 17] <= ascii_hex_nibble(cycle_count[59:56]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 18] <= ascii_hex_nibble(cycle_count[55:52]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 19] <= ascii_hex_nibble(cycle_count[51:48]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 20] <= ascii_hex_nibble(cycle_count[47:44]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 21] <= ascii_hex_nibble(cycle_count[43:40]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 22] <= ascii_hex_nibble(cycle_count[39:36]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 23] <= ascii_hex_nibble(cycle_count[35:32]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 24] <= ascii_hex_nibble(cycle_count[31:28]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 25] <= ascii_hex_nibble(cycle_count[27:24]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 26] <= ascii_hex_nibble(cycle_count[23:20]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 27] <= ascii_hex_nibble(cycle_count[19:16]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 28] <= ascii_hex_nibble(cycle_count[15:12]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 29] <= ascii_hex_nibble(cycle_count[11:8]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 30] <= ascii_hex_nibble(cycle_count[7:4]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 31] <= ascii_hex_nibble(cycle_count[3:0]);
+                        uart_tx_fifo_bytelength <= 31;
                         uart_tx_data_valid <= 1;
                         next_state <= STATE_DONE;
                     end
@@ -115,10 +156,15 @@ module top(input wire clk_25mhz,
 
                     // If the UART transmitter is ready and there is data in the FIFO, send it.
                     if (uart_tx_ready && uart_tx_data_valid) begin
-                        if (uart_tx_data == 8'h7a) begin
-                            uart_tx_data <= 8'h61; // 'a'
+                        if (uart_tx_fifo_bytelength <= 1) begin
+                            uart_tx_data_valid <= 0;
                         end else begin
-                            uart_tx_data <= uart_tx_data + 1;
+                            if (uart_tx_fifo_offset == UART_TX_FIFO_DEPTH - 1) begin
+                                uart_tx_fifo_offset <= 0;
+                            end else begin
+                                uart_tx_fifo_offset <= uart_tx_fifo_offset + 1;
+                            end
+                            uart_tx_fifo_bytelength <= uart_tx_fifo_bytelength - 1;
                         end
                     end
                 end
@@ -149,7 +195,7 @@ module top(input wire clk_25mhz,
     wire timeout;
     cycle_counter cycle_counter(
         .i_clk(i_clk),
-        .i_en(state != STATE_DONE && state != STATE_ERRS),
+        .i_en(state == STATE_EXEC),
         .o_count(cycle_count),
         .o_err(timeout),
     );
