@@ -90,6 +90,31 @@ module top(input wire clk_25mhz,
         .o_err(cycle_counter_err),
     );
 
+    assign uart_tx_fifo[17] = cycle_count[15:8];
+    assign uart_tx_fifo[18] = cycle_count[7:0];
+    initial begin
+    uart_tx_fifo[0]  = 8'h64; // 'd'
+    uart_tx_fifo[1]  = 8'h6f; // 'o'
+    uart_tx_fifo[2]  = 8'h6e; // 'n'
+    uart_tx_fifo[3]  = 8'h65; // 'e'
+    uart_tx_fifo[4]  = 8'h21; // '!'
+    uart_tx_fifo[5]  = 8'h0d; // '\r'
+    uart_tx_fifo[6]  = 8'h0a; // '\n'
+
+    uart_tx_fifo[7]  = 8'h63; // 'c'
+    uart_tx_fifo[8]  = 8'h79; // 'y'
+    uart_tx_fifo[9]  = 8'h63; // 'c'
+    uart_tx_fifo[10] = 8'h6c; // 'l'
+    uart_tx_fifo[11] = 8'h65; // 'e'
+    uart_tx_fifo[12] = 8'h73; // 's'
+    uart_tx_fifo[13] = 8'h3a; // ':'
+    uart_tx_fifo[14] = 8'h20; // ' '
+    uart_tx_fifo[15] = 8'h30; // '0'
+    uart_tx_fifo[16] = 8'h78; // 'x'
+    uart_tx_fifo[19] = 8'h0d; // '\r'
+    uart_tx_fifo[20] = 8'h0a; // '\n'
+    end
+
     // Function for converting a nibble to ASCII hex.
     function [7:0] ascii_hex_nibble(input [3:0] n);
         begin
@@ -117,6 +142,7 @@ module top(input wire clk_25mhz,
 
                     // If the CPU is done, transition to the done state and print a message.
                     if (cpu_en && cpu_done) begin
+                        /*
                         uart_tx_fifo[uart_tx_fifo_offset + 0]  = 8'h64; // 'd'
                         uart_tx_fifo[uart_tx_fifo_offset + 1]  = 8'h6f; // 'o'
                         uart_tx_fifo[uart_tx_fifo_offset + 2]  = 8'h6e; // 'n'
@@ -135,6 +161,16 @@ module top(input wire clk_25mhz,
                         uart_tx_fifo[uart_tx_fifo_offset + 14] = 8'h20; // ' '
                         uart_tx_fifo[uart_tx_fifo_offset + 15] = 8'h30; // '0'
                         uart_tx_fifo[uart_tx_fifo_offset + 16] = 8'h78; // 'x'
+                        */
+
+                        /*
+                        uart_tx_fifo[uart_tx_fifo_offset + 17] = cycle_count[15:8];
+                        uart_tx_fifo[uart_tx_fifo_offset + 18] = cycle_count[7:0];
+                        uart_tx_fifo[uart_tx_fifo_offset + 19] = 8'h0d; // '\r'
+                        uart_tx_fifo[uart_tx_fifo_offset + 20] = 8'h0a; // '\n'
+                        */
+
+                        /*
                         uart_tx_fifo[uart_tx_fifo_offset + 17] = ascii_hex_nibble(cycle_count[63:60]);
                         uart_tx_fifo[uart_tx_fifo_offset + 18] = ascii_hex_nibble(cycle_count[59:56]);
                         uart_tx_fifo[uart_tx_fifo_offset + 19] = ascii_hex_nibble(cycle_count[55:52]);
@@ -153,8 +189,9 @@ module top(input wire clk_25mhz,
                         uart_tx_fifo[uart_tx_fifo_offset + 32] = ascii_hex_nibble(cycle_count[3:0]);
                         uart_tx_fifo[uart_tx_fifo_offset + 33] = 8'h0d; // '\r'
                         uart_tx_fifo[uart_tx_fifo_offset + 34] = 8'h0a; // '\n'
+                        */
 
-                        uart_tx_fifo_bytelength <= 35;
+                        uart_tx_fifo_bytelength <= 21;
                         uart_tx_data_valid <= 1;
                         next_state <= STATE_DONE;
                     end
