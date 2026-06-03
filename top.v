@@ -32,12 +32,6 @@ module top(input wire clk_25mhz,
     localparam ERRBIT_MEM = 3;  // Error from the memory module.
     reg [3:0] errs = 0;
 
-    // FIFO for data to send via serial.
-    localparam UART_TX_FIFO_DEPTH = 64;
-    reg [7:0] uart_tx_fifo [0:UART_TX_FIFO_DEPTH-1]; // FIFO depth was 65, not 64
-    reg [6:0] uart_tx_fifo_bytelength = 0;
-    reg [6:0] uart_tx_fifo_offset = 0;
-
     assign uart_rx_en = (state == STATE_INIT);
     wire [7:0] uart_rx_data;
     wire uart_rx_data_valid;
@@ -234,13 +228,10 @@ module top(input wire clk_25mhz,
         if (i_rst) begin
             state <= STATE_INIT;
             errs <= 0;
-            uart_tx_fifo_bytelength <= 0;
-            uart_tx_fifo_offset <= 0;
             done_msg_bytes_sent <= 0;
             cycle_count_bit_offset <= 6'd60;
         end else if (errs) begin
             state <= STATE_ERRS;
-            uart_tx_fifo_bytelength <= 0;
         end else begin
             state <= next_state;
             if (decrement_bit_offset) begin
