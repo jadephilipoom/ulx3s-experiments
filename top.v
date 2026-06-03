@@ -180,7 +180,7 @@ module top(input wire clk_25mhz,
         errs[ERRBIT_CNT] <= cycle_counter_en && cycle_counter_err;
         errs[ERRBIT_SER] <= (uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err);
         errs[ERRBIT_CPU] <= cpu_en && cpu_err;
-        // errs[ERRBIT_MEM] <= 0;
+        errs[ERRBIT_MEM] <= 0;
         if (errs != 0) begin
             state <= STATE_ERRS;
         end else begin
