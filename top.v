@@ -90,8 +90,6 @@ module top(input wire clk_25mhz,
         .o_err(cycle_counter_err),
     );
 
-    assign uart_tx_fifo[17] = cycle_count[15:8];
-    assign uart_tx_fifo[18] = cycle_count[7:0];
     initial begin
     uart_tx_fifo[0]  = 8'h64; // 'd'
     uart_tx_fifo[1]  = 8'h6f; // 'o'
@@ -163,9 +161,9 @@ module top(input wire clk_25mhz,
                         uart_tx_fifo[uart_tx_fifo_offset + 16] = 8'h78; // 'x'
                         */
 
-                        /*
                         uart_tx_fifo[uart_tx_fifo_offset + 17] = cycle_count[15:8];
                         uart_tx_fifo[uart_tx_fifo_offset + 18] = cycle_count[7:0];
+                        /*
                         uart_tx_fifo[uart_tx_fifo_offset + 19] = 8'h0d; // '\r'
                         uart_tx_fifo[uart_tx_fifo_offset + 20] = 8'h0a; // '\n'
                         */
