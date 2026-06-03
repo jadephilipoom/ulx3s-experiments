@@ -75,6 +75,7 @@ module top(input wire clk_25mhz,
     cpu cpu(
         .i_clk(i_clk),
         .i_en(cpu_en),
+        .i_rst(i_rst),
         .o_err(cpu_err),
         .o_done(cpu_done),
     );
@@ -326,6 +327,7 @@ endmodule
 
 module cpu(input wire i_clk,
            input wire i_en,
+           input wire i_rst,
            output wire o_err,
            output wire o_done);
 
@@ -334,7 +336,11 @@ module cpu(input wire i_clk,
     localparam DELAY = 25'h3ffffff;
 
     always @(posedge i_clk) begin
-        if (i_en) begin
+        if (i_rst) begin
+            cycle_count <= 0;
+            o_done <= 0;
+            o_err <= 0;
+        end else if (i_en) begin
             // TODO
             o_err = 0;
             o_done = 0;
