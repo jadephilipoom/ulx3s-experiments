@@ -34,12 +34,12 @@ module top(input wire clk_25mhz,
 
     // FIFO for data to send via serial.
     localparam UART_TX_FIFO_DEPTH = 64;
-    reg [7:0] uart_tx_fifo [0:UART_TX_FIFO_DEPTH];
+    reg [7:0] uart_tx_fifo [0:UART_TX_FIFO_DEPTH-1];
     reg [6:0] uart_tx_fifo_bytelength = 0;
-    reg [5:0] uart_tx_fifo_offset = 0;
+    reg [6:0] uart_tx_fifo_offset = 0;
 
     assign uart_rx_en = (state == STATE_INIT);
-    reg [7:0] uart_rx_data;
+    wire [7:0] uart_rx_data;
     wire uart_rx_data_valid;
     wire uart_rx_done;
     wire uart_rx_err;
@@ -57,6 +57,8 @@ module top(input wire clk_25mhz,
     assign uart_tx_en = (state == STATE_DONE);
     reg [7:0] uart_tx_data;
     reg uart_tx_data_valid;
+    reg set_uart_tx_data_valid;
+    reg clr_uart_tx_data_valid;
     wire uart_tx_ready;
     wire uart_tx_err;
     uart_tx uart_tx(
@@ -97,9 +99,11 @@ module top(input wire clk_25mhz,
     reg [7:0] done_msg_prefix_chars [0:16];
     reg [7:0] done_msg_suffix_chars [0:1];
     reg [6:0] cycle_count_bit_offset;
+    reg decrement_bit_offset;
+    reg clear_bytes_sent;
+    reg inc_bytes_sent;
     initial begin
         done_msg_bytes_sent = 0;
-        uart_tx_data_valid = 0;
         cycle_count_bit_offset = 6'd60;
         done_msg_prefix_chars[ 0] = 8'h64; // 'd'
         done_msg_prefix_chars[ 1] = 8'h6f; // 'o'
@@ -130,67 +134,69 @@ module top(input wire clk_25mhz,
         end
     endfunction
 
+    // split oled into a combinational interpretation of state
+    always @(*) begin
+        o_led[7:0] = 0;
+        decrement_bit_offset = 0;
+        clear_bytes_sent = 0;
+        inc_bytes_sent = 0;
+        set_uart_tx_data_valid = 0;
+        clr_uart_tx_data_valid = 0;
+        uart_tx_data = 0;
+        next_state = state; // sets a default value for state
+        case(state)
+            STATE_INIT: begin
+                o_led[1] = 1;
+                clr_uart_tx_data_valid = 1;
+
+                // If the serial receiver is done, transition to the exec state.
+                if (uart_rx_en && uart_rx_done) begin
+                    next_state = STATE_EXEC;
+                end
+            end
+            STATE_EXEC: begin
+                o_led[3] = 1;
+                // If the CPU is done, transition to the done state and print a message.
+                if (cpu_en && cpu_done) begin
+                    next_state = STATE_DONE;
+                    uart_tx_data = done_msg_prefix_chars[0];
+                    set_uart_tx_data_valid = 1;
+                    clear_bytes_sent = 1;
+                end
+            end
+            STATE_DONE: begin
+                o_led[2] = 1;
+                // If the UART transmitter is ready and there is still
+                // something to print, send the next byte.
+                if (uart_tx_ready && uart_tx_data_valid) begin
+                    if (done_msg_bytes_sent < 17) begin
+                        uart_tx_data = done_msg_prefix_chars[done_msg_bytes_sent];
+                    end else if (done_msg_bytes_sent < 33) begin
+                        uart_tx_data = ascii_hex_nibble(cycle_count[cycle_count_bit_offset +: 4]);
+                        decrement_bit_offset = 1;
+                    end else if (done_msg_bytes_sent < 35) begin
+                        uart_tx_data = done_msg_suffix_chars[done_msg_bytes_sent - 33];
+                    end else begin
+                        clr_uart_tx_data_valid = 1;
+                    end
+                    inc_bytes_sent = 1;
+                end
+            end
+            STATE_ERRS: begin
+                o_led[0] = 1;
+                // Set additional LEDs to error flags.
+                o_led[4] = errs[0];
+                o_led[5] = errs[1];
+                o_led[6] = errs[2];
+                o_led[7] = errs[3];
+
+                clr_uart_tx_data_valid = 1;
+            end
+        endcase
+    end
+
     // Main state machine.
     always @(posedge i_clk) begin
-          o_led[7:0] = 0;
-          case (state)
-
-                STATE_INIT: begin
-                    o_led[1] = 1; // orange led for init
-                    uart_tx_data_valid <= 0;
-
-                    // If the serial receiver is done, transition to the exec state.
-                    if (uart_rx_en && uart_rx_done) begin
-                        next_state <= STATE_EXEC;
-                    end
-                end
-
-                STATE_EXEC: begin
-                    o_led[3] = 1; // blue led for exec
-
-                    // If the CPU is done, transition to the done state and print a message.
-                    if (cpu_en && cpu_done) begin
-                        next_state <= STATE_DONE;
-                        uart_tx_data <= done_msg_prefix_chars[0];
-                        uart_tx_data_valid <= 1;
-                        done_msg_bytes_sent <= 1;
-                    end
-                end
-
-                STATE_DONE: begin
-                    o_led[2] = 1; // green led for done
-
-                    // If the UART transmitter is ready and there is still
-                    // something to print, send the next byte.
-                    if (uart_tx_ready && uart_tx_data_valid) begin
-                        if (done_msg_bytes_sent < 17) begin
-                            uart_tx_data <= done_msg_prefix_chars[done_msg_bytes_sent];
-                        end else if (done_msg_bytes_sent < 33) begin
-                            uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
-                            cycle_count_bit_offset <= cycle_count_bit_offset - 4;
-                        end else if (done_msg_bytes_sent < 35) begin
-                            uart_tx_data <= done_msg_suffix_chars[done_msg_bytes_sent - 33];
-                        end else begin
-                            uart_tx_data_valid <= 0;
-                        end
-                        done_msg_bytes_sent <= done_msg_bytes_sent + 1;
-                    end
-                end
-
-                STATE_ERRS: begin
-                    o_led[0] = 1; // red led for errors
-                    uart_tx_data_valid <= 0;
-                    uart_tx_fifo_bytelength <= 0;
-
-                    // Set additional LEDs to error flags.
-                    o_led[4] = errs[0];
-                    o_led[5] = errs[1];
-                    o_led[6] = errs[2];
-                    o_led[7] = errs[3];
-                end
-
-        endcase
-
         // Update error bits.
         errs[ERRBIT_CNT] <= errs[ERRBIT_CNT] || (cycle_counter_en && cycle_counter_err);
         errs[ERRBIT_SER] <= errs[ERRBIT_SER] || ((uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err));
@@ -200,7 +206,6 @@ module top(input wire clk_25mhz,
         // Check for errors or reset that would intercept the state change.
         if (i_rst) begin
             state <= STATE_INIT;
-            next_state <= STATE_INIT;
             errs <= 0;
             uart_tx_fifo_bytelength <= 0;
             uart_tx_fifo_offset <= 0;
@@ -208,9 +213,22 @@ module top(input wire clk_25mhz,
             cycle_count_bit_offset <= 6'd60;
         end else if (errs) begin
             state <= STATE_ERRS;
-            next_state <= STATE_ERRS;
+            uart_tx_fifo_bytelength <= 0;
         end else begin
             state <= next_state;
+            if (decrement_bit_offset) begin
+                cycle_count_bit_offset <= cycle_count_bit_offset - 4;
+            end
+            if (clear_bytes_sent) begin
+                done_msg_bytes_sent <= 1;
+            end else if (inc_bytes_sent) begin
+                done_msg_bytes_sent <= done_msg_bytes_sent + 1;
+            end
+            if (i_rst || clr_uart_tx_data_valid) begin
+                uart_tx_data_valid <= 0;
+            end else if (set_uart_tx_data_valid) begin
+                uart_tx_data_valid <= 1;
+            end
         end
 
     end
@@ -222,9 +240,9 @@ module uart_rx(input wire i_clk,
                input wire i_rst,
                input wire i_rx,
                output [7:0] o_data,
-               output wire o_data_valid,
-               output wire o_done,
-               output wire o_err);
+               output reg o_data_valid,
+               output reg o_done,
+               output reg o_err);
 
     localparam STATE_WAIT = 2'd0; // Waiting for start sequence.
     localparam STATE_READ = 2'd1; // Reading data until end sequence.
@@ -242,12 +260,12 @@ module uart_rx(input wire i_clk,
             o_done <= 0;
             o_err <= 0;
         end else if (i_en) begin
-            o_data_valid = 0;
-            o_err = 0;
-            o_done = 0;
+            o_data_valid <= 0;
+            o_err <= 0;
+            o_done <= 0;
             cycle_count <= cycle_count + 1;
             if (cycle_count >= DELAY) begin
-                o_done = 1;
+                o_done <= 1;
             end
             case (state)
 
@@ -272,11 +290,11 @@ module uart_tx(input wire i_clk,
                input wire i_data_valid,
                output wire o_tx,
                output wire o_ready,
-               output wire o_err);
+               output reg o_err);
 
     localparam STATE_WAIT = 1'd0;
     localparam STATE_SEND = 1'd1;
-    reg [1:0] state = STATE_WAIT;
+    reg state = STATE_WAIT;
 
     reg [9:0] send_data = ~0;
     reg [3:0] send_bits;
@@ -290,12 +308,11 @@ module uart_tx(input wire i_clk,
 
     always @(posedge i_clk) begin
         if (i_rst) begin
-            cycle_count <= 0;
-            state = STATE_WAIT;
+            state <= STATE_WAIT;
             send_data <= ~0;
             o_err <= 0;
         end else if (i_en) begin
-            o_err = 0;
+            o_err <= 0;
             case (state)
 
                 STATE_WAIT: begin
@@ -333,8 +350,8 @@ endmodule
 module cpu(input wire i_clk,
            input wire i_en,
            input wire i_rst,
-           output wire o_err,
-           output wire o_done);
+           output reg o_err,
+           output reg o_done);
 
     // TODO: remove
     reg [24:0] cycle_count = 0;
@@ -347,11 +364,11 @@ module cpu(input wire i_clk,
             o_err <= 0;
         end else if (i_en) begin
             // TODO
-            o_err = 0;
-            o_done = 0;
+            o_err <= 0;
+            o_done <= 0;
             cycle_count <= cycle_count + 1;
             if (cycle_count >= DELAY) begin
-                o_done = 1;
+                o_done <= 1;
             end
         end
     end
@@ -363,27 +380,24 @@ module cycle_counter(input wire i_clk,
                      input wire i_en,
                      input wire i_rst,
                      output [63:0] o_count,
-                     output wire o_err);
+                     output reg o_err);
 
-    reg [63:0] count;
+    reg [63:0] count = 0;
     localparam MAX_COUNT = 64'hffffffffffffffff;
+    assign o_count = count;
 
-    initial begin
-        count = 0;
-        o_err = 0;
-    end
+    // prefer not to use 'initial begin' because it is not always synthesizable
 
     always @(posedge i_clk) begin
         if (i_rst) begin
-            count = 0;
-            o_err = 0;
+            count <= 0;
+            o_err <= 0;
         end else if (i_en) begin
-            count = count + 1;
+            count <= count + 1;
             if (count >= MAX_COUNT) begin
                 // Counter overflow.
-                o_err = 1;
+                o_err <= 1;
             end
-            o_count = count;
         end
     end
 
