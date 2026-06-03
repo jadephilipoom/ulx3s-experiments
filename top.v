@@ -1,9 +1,13 @@
 module top(input wire clk_25mhz,
+           input [6:0] btn,
            input ftdi_txd,
            output ftdi_rxd,
            output [7:0] led);
 
     assign i_clk = clk_25mhz;
+
+    // Set up reset button.
+    assign i_rst = btn[1];
 
     // Set up LED array.
     // - 0, 4: red
@@ -172,11 +176,19 @@ module top(input wire clk_25mhz,
 
         endcase
 
+        // Update error bits.
         errs[ERRBIT_CNT] <= errs[ERRBIT_CNT] || (cycle_counter_en && cycle_counter_err);
         errs[ERRBIT_SER] <= errs[ERRBIT_SER] || ((uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err));
         errs[ERRBIT_CPU] <= errs[ERRBIT_CPU] || (cpu_en && cpu_err);
         errs[ERRBIT_MEM] <= errs[ERRBIT_MEM] || 0; // TODO
-        if (errs) begin
+
+        // Check for errors or reset that would intercept the state change.
+        if (i_rst) begin
+            state <= STATE_INIT;
+            errs <= 0;
+            uart_tx_fifo_bytelength <= 0;
+            uart_tx_fifo_offset <= 0;
+        end else if (errs) begin
             state <= STATE_ERRS;
         end else begin
             state <= next_state;
