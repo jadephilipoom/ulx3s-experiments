@@ -6,9 +6,6 @@ module top(input wire clk_25mhz,
 
     assign i_clk = clk_25mhz;
 
-    // Assign reset button.
-    assign i_rst = btn[1];
-
     // Set up LED array.
     // - 0, 4: red
     // - 1, 5: orange
@@ -30,11 +27,7 @@ module top(input wire clk_25mhz,
     localparam ERRBIT_SER = 2;  // Error from the serial module.
     localparam ERRBIT_CPU = 1;  // Error from the CPU module.
     localparam ERRBIT_MEM = 2;  // Error from the memory module.
-    reg [3:0] errs;
-    assign errs[ERRBIT_CNT] = (cycle_counter_en && cycle_counter_err);
-    assign errs[ERRBIT_SER] = (uart_rx_en && uart_rx_err) || (uart_tx_end && uart_tx_err);
-    assign errs[ERRBIT_CPU] = (cpu_en && cpu_err);
-    assign errs[ERRBIT_MEM] = 0; // TODO 
+    reg [3:0] errs = 0;
 
     // FIFO for data to send via serial.
     localparam UART_TX_FIFO_DEPTH = 32;
@@ -42,7 +35,7 @@ module top(input wire clk_25mhz,
     reg [4:0] uart_tx_fifo_bytelength = 0;
     reg [4:0] uart_tx_fifo_offset = 0;
 
-    wire uart_tx_en = (state == STATE_INIT);
+    wire uart_rx_en = (state == STATE_INIT);
     reg [7:0] uart_rx_data;
     wire uart_rx_data_valid;
     wire uart_rx_done;
@@ -50,7 +43,6 @@ module top(input wire clk_25mhz,
     uart_rx uart_rx(
         .i_clk(i_clk),
         .i_en(state == STATE_INIT),
-        .i_rst(i_rst),
         .i_rx(ftdi_txd),
         .o_data(uart_rx_data),
         .o_data_valid(uart_rx_data_valid),
@@ -65,7 +57,6 @@ module top(input wire clk_25mhz,
     uart_tx uart_tx(
         .i_clk(i_clk),
         .i_en(uart_tx_en),
-        .i_rst(i_rst),
         .i_data(uart_tx_fifo[uart_tx_fifo_offset]),
         .i_data_valid(uart_tx_data_valid),
         .o_tx(ftdi_rxd),
@@ -79,7 +70,6 @@ module top(input wire clk_25mhz,
     cpu cpu(
         .i_clk(i_clk),
         .i_en(cpu_en),
-        .i_rst(i_rst),
         .o_err(cpu_err),
         .o_done(cpu_done),
     );
@@ -184,13 +174,12 @@ module top(input wire clk_25mhz,
 
         endcase
 
-        // Check for errors or reset that would intercept the state change.
-        if (i_rst) begin
-            state <= STATE_INIT;
-            errs <= 0;
-            uart_tx_fifo_bytelength <= 0;
-            uart_tx_fifo_offset <= 0;
-        end else if (errs != 0) begin
+        // Check for errors that would intercept the state change.
+        errs[ERRBIT_SER] = (uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err);
+        errs[ERRBIT_CNT] = (cycle_counter_en && cycle_counter_err);
+        errs[ERRBIT_CPU] = (cpu_en && cpu_err);
+        errs[ERRBIT_MEM] = 0; // TODO 
+        if (errs != 0) begin
             state <= STATE_ERRS;
         end else begin
             state <= next_state;
@@ -204,7 +193,6 @@ module top(input wire clk_25mhz,
     cycle_counter cycle_counter(
         .i_clk(i_clk),
         .i_en(cycle_counter_en),
-        .i_rst(i_rst),
         .o_count(cycle_count),
         .o_err(cycle_counter_err),
     );
@@ -213,7 +201,6 @@ endmodule
 
 module uart_rx(input wire i_clk,
                input wire i_en,
-               input wire i_rst,
                input wire i_rx,
                output [7:0] o_data,
                output wire o_data_valid,
@@ -253,22 +240,13 @@ module uart_rx(input wire i_clk,
     end
 
     always @(posedge i_clk) begin
-        if (i_rst) begin
-            state <= STATE_WAIT;
-            cycle_count <= 0;
-            o_data_valid = 0;
-            o_err = 0;
-            o_done = 0;
-        end else begin
-            state <= next_state;
-        end
+        state <= next_state;
     end
 
 endmodule
 
 module uart_tx(input wire i_clk,
                input wire i_en,
-               input wire i_rst,
                input [7:0] i_data,
                input wire i_data_valid,
                output wire o_tx,
@@ -330,19 +308,13 @@ module uart_tx(input wire i_clk,
     end
 
     always @(posedge i_clk) begin
-        if (i_rst) begin
-            state <= STATE_WAIT;
-            send_data <= ~0;
-        end else begin
-            state <= next_state;
-        end
+        state <= next_state;
     end
 
 endmodule
 
 module cpu(input wire i_clk,
            input wire i_en,
-           input wire i_rst,
            output wire o_err,
            output wire o_done);
 
@@ -362,18 +334,11 @@ module cpu(input wire i_clk,
         end
     end
 
-    always @(posedge i_clk) begin
-        if (i_rst) begin
-            cycle_count <= 0;
-        end
-    end
-
 endmodule
 
 // Cycle count incrementer.
 module cycle_counter(input wire i_clk,
                      input wire i_en,
-                     input wire i_rst,
                      output [63:0] o_count,
                      output wire o_err);
 
@@ -389,13 +354,6 @@ module cycle_counter(input wire i_clk,
                 // Counter overflow.
                 o_err = 1;
             end
-        end
-    end
-
-    always @(posedge i_clk) begin
-        if (i_rst) begin
-            count <= 0;
-            o_err <= 0;
         end
     end
 
