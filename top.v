@@ -90,28 +90,37 @@ module top(input wire clk_25mhz,
         .o_err(cycle_counter_err),
     );
 
-    initial begin
-    uart_tx_fifo[0]  = 8'h64; // 'd'
-    uart_tx_fifo[1]  = 8'h6f; // 'o'
-    uart_tx_fifo[2]  = 8'h6e; // 'n'
-    uart_tx_fifo[3]  = 8'h65; // 'e'
-    uart_tx_fifo[4]  = 8'h21; // '!'
-    uart_tx_fifo[5]  = 8'h0d; // '\r'
-    uart_tx_fifo[6]  = 8'h0a; // '\n'
+    // Counters to keep track of data sent/received from serial so far.
+    reg [31:0] uart_tx_bytes;
 
-    uart_tx_fifo[7]  = 8'h63; // 'c'
-    uart_tx_fifo[8]  = 8'h79; // 'y'
-    uart_tx_fifo[9]  = 8'h63; // 'c'
-    uart_tx_fifo[10] = 8'h6c; // 'l'
-    uart_tx_fifo[11] = 8'h65; // 'e'
-    uart_tx_fifo[12] = 8'h73; // 's'
-    uart_tx_fifo[13] = 8'h3a; // ':'
-    uart_tx_fifo[14] = 8'h20; // ' '
-    uart_tx_fifo[15] = 8'h30; // '0'
-    uart_tx_fifo[16] = 8'h78; // 'x'
-    uart_tx_fifo[19] = 8'h0d; // '\r'
-    uart_tx_fifo[20] = 8'h0a; // '\n'
+    initial begin
+        uart_tx_bytes = 0;
     end
+
+    // Printing constants.
+    reg [7:0] done_chars [0:4] = {
+        8'h64, // 'd'
+        8'h6f, // 'o'
+        8'h6e, // 'n'
+        8'h65, // 'e'
+        8'h21, // '!'
+    };
+    reg [7:0] newline_chars [0:1] = {
+        8'h0d, // '\r'
+        8'h0a, // '\n'
+    };
+    reg [7:0] cycles_prefix_chars [0:9] = {
+        8'h63; // 'c'
+        8'h79; // 'y'
+        8'h63; // 'c'
+        8'h6c; // 'l'
+        8'h65; // 'e'
+        8'h73; // 's'
+        8'h3a; // ':'
+        8'h20; // ' '
+        8'h30; // '0'
+        8'h78; // 'x'
+    };
 
     // Function for converting a nibble to ASCII hex.
     function [7:0] ascii_hex_nibble(input [3:0] n);
@@ -405,6 +414,43 @@ module cycle_counter(input wire i_clk,
     initial begin
         count = 0;
         o_err = 0;
+    end
+
+    always @(posedge i_clk) begin
+        if (i_rst) begin
+            count = 0;
+            o_err = 0;
+        end else if (i_en) begin
+            count = count + 1;
+            if (count >= MAX_COUNT) begin
+                // Counter overflow.
+                o_err = 1;
+            end
+            o_count = count;
+        end
+    end
+
+endmodule
+
+// General-purpose fifo for bytes.
+module fifo(input wire i_clk,
+            input wire i_en,
+            input wire i_rst,
+            input [7:0] i_data,
+            input wire i_data_valid,
+            output [63:0] o_count,
+            output wire o_ready,
+            output wire o_err);
+
+    // TODO: make the capacity a parameter
+    localparam DEPTH = 64;
+    reg [7:0] entries [DEPTH:0];
+    reg [5:0] offset;
+    reg [6:0] length;
+
+    initial begin
+        offset = 0;
+        length = 0;
     end
 
     always @(posedge i_clk) begin
