@@ -80,19 +80,29 @@ module top(input wire clk_25mhz,
         .o_done(cpu_done),
     );
 
+    wire [63:0] cycle_count;
+    assign cycle_counter_en = (state == STATE_EXEC);
+    wire cycle_counter_err;
+    cycle_counter cycle_counter(
+        .i_clk(i_clk),
+        .i_en(cycle_counter_en),
+        .o_count(cycle_count),
+        .o_err(cycle_counter_err),
+    );
+
     // Function for converting a nibble to ASCII hex.
-    function [7:0] ascii_hex_nibble;
-        input [3:0] nibble;
-        if (nibble < 4'd10) begin
-            ascii_hex_nibble <= 8'h30 + nibble;
-        end else begin
-            ascii_hex_nibble <= 8'h57 + nibble;
+    function [7:0] ascii_hex_nibble(input [3:0] n);
+        begin
+            ascii_hex_nibble = ((n < 4'd10) ? 8'h30 : 8'h57) + {4'd0, n};
         end
     endfunction
 
     // Main state machine.
     always @(posedge i_clk) begin
-          o_led[7:0] = 0;
+          // o_led[7:0] = 0;
+          o_led[5:0] = 0;
+          o_led[6] = cycle_count > 0;
+          o_led[7] = cycle_counter_en;
           case (state)
 
                 STATE_INIT: begin
@@ -110,46 +120,44 @@ module top(input wire clk_25mhz,
 
                     // If the CPU is done, transition to the done state and print a message.
                     if (cpu_en && cpu_done) begin
-                        uart_tx_fifo[uart_tx_fifo_offset + 0]  <= 8'h64; // 'd' 
-                        uart_tx_fifo[uart_tx_fifo_offset + 1]  <= 8'h6f; // 'o'
-                        uart_tx_fifo[uart_tx_fifo_offset + 2]  <= 8'h6e; // 'n'
-                        uart_tx_fifo[uart_tx_fifo_offset + 3]  <= 8'h65; // 'e'
-                        uart_tx_fifo[uart_tx_fifo_offset + 4]  <= 8'h21; // '!'
-                        uart_tx_fifo[uart_tx_fifo_offset + 5]  <= 8'h0d; // '\r' 
-                        uart_tx_fifo[uart_tx_fifo_offset + 6]  <= 8'h0a; // '\n' 
+                        uart_tx_fifo[uart_tx_fifo_offset + 0]  = 8'h64; // 'd'
+                        uart_tx_fifo[uart_tx_fifo_offset + 1]  = 8'h6f; // 'o'
+                        uart_tx_fifo[uart_tx_fifo_offset + 2]  = 8'h6e; // 'n'
+                        uart_tx_fifo[uart_tx_fifo_offset + 3]  = 8'h65; // 'e'
+                        uart_tx_fifo[uart_tx_fifo_offset + 4]  = 8'h21; // '!'
+                        uart_tx_fifo[uart_tx_fifo_offset + 5]  = 8'h0d; // '\r'
+                        uart_tx_fifo[uart_tx_fifo_offset + 6]  = 8'h0a; // '\n'
 
-                        uart_tx_fifo[uart_tx_fifo_offset + 7]  <= 8'h63; // 'c'
-                        uart_tx_fifo[uart_tx_fifo_offset + 8]  <= 8'h79; // 'y'
-                        uart_tx_fifo[uart_tx_fifo_offset + 9]  <= 8'h63; // 'c'
-                        uart_tx_fifo[uart_tx_fifo_offset + 10]  <= 8'h6c; // 'l'
-                        uart_tx_fifo[uart_tx_fifo_offset + 11] <= 8'h65; // 'e'
-                        uart_tx_fifo[uart_tx_fifo_offset + 12] <= 8'h73; // 's'
-                        uart_tx_fifo[uart_tx_fifo_offset + 13] <= 8'h3a; // ':'
-                        uart_tx_fifo[uart_tx_fifo_offset + 14] <= 8'h20; // ' '
-                        uart_tx_fifo[uart_tx_fifo_offset + 15] <= 8'h30; // '0'
-                        uart_tx_fifo[uart_tx_fifo_offset + 16] <= 8'h78; // 'x'
-                        uart_tx_fifo[uart_tx_fifo_offset + 17]  <= 8'h0d; // '\r' 
-                        uart_tx_fifo[uart_tx_fifo_offset + 18]  <= 8'h0a; // '\n' 
-                        /*
-                        uart_tx_fifo[uart_tx_fifo_offset + 17] <= ascii_hex_nibble(cycle_count[63:60]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 18] <= ascii_hex_nibble(cycle_count[59:56]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 19] <= ascii_hex_nibble(cycle_count[55:52]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 20] <= ascii_hex_nibble(cycle_count[51:48]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 21] <= ascii_hex_nibble(cycle_count[47:44]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 22] <= ascii_hex_nibble(cycle_count[43:40]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 23] <= ascii_hex_nibble(cycle_count[39:36]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 24] <= ascii_hex_nibble(cycle_count[35:32]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 25] <= ascii_hex_nibble(cycle_count[31:28]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 26] <= ascii_hex_nibble(cycle_count[27:24]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 27] <= ascii_hex_nibble(cycle_count[23:20]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 28] <= ascii_hex_nibble(cycle_count[19:16]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 29] <= ascii_hex_nibble(cycle_count[15:12]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 30] <= ascii_hex_nibble(cycle_count[11:8]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 31] <= ascii_hex_nibble(cycle_count[7:4]);
-                        uart_tx_fifo[uart_tx_fifo_offset + 32] <= ascii_hex_nibble(cycle_count[3:0]);
-                        */
+                        uart_tx_fifo[uart_tx_fifo_offset + 7]  = 8'h63; // 'c'
+                        uart_tx_fifo[uart_tx_fifo_offset + 8]  = 8'h79; // 'y'
+                        uart_tx_fifo[uart_tx_fifo_offset + 9]  = 8'h63; // 'c'
+                        uart_tx_fifo[uart_tx_fifo_offset + 10] = 8'h6c; // 'l'
+                        uart_tx_fifo[uart_tx_fifo_offset + 11] = 8'h65; // 'e'
+                        uart_tx_fifo[uart_tx_fifo_offset + 12] = 8'h73; // 's'
+                        uart_tx_fifo[uart_tx_fifo_offset + 13] = 8'h3a; // ':'
+                        uart_tx_fifo[uart_tx_fifo_offset + 14] = 8'h20; // ' '
+                        uart_tx_fifo[uart_tx_fifo_offset + 15] = 8'h30; // '0'
+                        uart_tx_fifo[uart_tx_fifo_offset + 16] = 8'h78; // 'x'
+                        uart_tx_fifo[uart_tx_fifo_offset + 17] = ascii_hex_nibble(cycle_count[63:60]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 18] = ascii_hex_nibble(cycle_count[59:56]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 19] = ascii_hex_nibble(cycle_count[55:52]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 20] = ascii_hex_nibble(cycle_count[51:48]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 21] = ascii_hex_nibble(cycle_count[47:44]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 22] = ascii_hex_nibble(cycle_count[43:40]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 23] = ascii_hex_nibble(cycle_count[39:36]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 24] = ascii_hex_nibble(cycle_count[35:32]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 25] = ascii_hex_nibble(cycle_count[31:28]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 26] = ascii_hex_nibble(cycle_count[27:24]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 27] = ascii_hex_nibble(cycle_count[23:20]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 28] = ascii_hex_nibble(cycle_count[19:16]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 29] = ascii_hex_nibble(cycle_count[15:12]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 30] = ascii_hex_nibble(cycle_count[11:8]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 31] = ascii_hex_nibble(cycle_count[7:4]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 32] = ascii_hex_nibble(cycle_count[3:0]);
+                        uart_tx_fifo[uart_tx_fifo_offset + 33] = 8'h0d; // '\r'
+                        uart_tx_fifo[uart_tx_fifo_offset + 34] = 8'h0a; // '\n'
 
-                        uart_tx_fifo_bytelength <= 19;
+                        uart_tx_fifo_bytelength <= 35;
                         uart_tx_data_valid <= 1;
                         next_state <= STATE_DONE;
                     end
@@ -182,7 +190,7 @@ module top(input wire clk_25mhz,
                     o_led[4] = errs[0];
                     o_led[5] = errs[1];
                     o_led[6] = errs[2];
-                    o_led[7] = errs[3];
+                    // o_led[7] = errs[3]; TODO
                 end
 
         endcase
@@ -209,16 +217,6 @@ module top(input wire clk_25mhz,
 
     end
 
-    reg [63:0] cycle_count;
-    assign cycle_counter_en = (state == STATE_EXEC);
-    wire cycle_counter_err;
-    cycle_counter cycle_counter(
-        .i_clk(i_clk),
-        .i_en(cycle_counter_en),
-        .o_count(cycle_count),
-        .o_err(cycle_counter_err),
-    );
-
 endmodule
 
 module uart_rx(input wire i_clk,
@@ -236,7 +234,7 @@ module uart_rx(input wire i_clk,
 
     // TODO: remove
     reg [24:0] cycle_count = 0;
-    localparam DELAY = 25'h3ffffff;
+    localparam DELAY = 25'h1ffffff;
 
     always @(posedge i_clk) begin
         if (i_rst) begin
@@ -342,7 +340,7 @@ module cpu(input wire i_clk,
 
     // TODO: remove
     reg [24:0] cycle_count = 0;
-    localparam DELAY = 25'h3ffffff;
+    localparam DELAY = 25'h1ffff00;
 
     always @(posedge i_clk) begin
         if (i_rst) begin
@@ -375,10 +373,10 @@ module cycle_counter(input wire i_clk,
 
     always @(posedge i_clk) begin
         if (i_rst) begin
-            count <= 0;
-            o_err <= 0;
+            count = 0;
+            o_err = 0;
         end else if (i_en) begin
-            count <= count + 1;
+            count = count + 1;
             if (count >= MAX_COUNT) begin
                 // Counter overflow.
                 o_err = 1;
