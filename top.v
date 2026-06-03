@@ -13,7 +13,7 @@ module top(input wire clk_25mhz,
     reg [7:0] o_led = 0;
     assign led = o_led;
 
-    // Set up basic state machine.
+   // Set up basic state machine.
     localparam STATE_INIT = 2'd0; // Initializing; program not yet loaded.
     localparam STATE_EXEC = 2'd1; // Executing the program.
     localparam STATE_DONE = 2'd2; // Program exited successfully (terminal state).
@@ -183,7 +183,7 @@ module top(input wire clk_25mhz,
 
         endcase
 
-        // errs[ERRBIT_CNT]
+        errs[ERRBIT_CNT] <= cycle_counter_en && cycle_counter_err;
         // errs[ERRBIT_SER]
         // errs[ERRBIT_CPU]
         // errs[ERRBIT_MEM]
@@ -196,21 +196,14 @@ module top(input wire clk_25mhz,
     end
 
     reg [63:0] cycle_count;
-    wire timeout;
+    wire cycle_counter_en = (state == STATE_EXEC);
+    wire cycle_counter_err;
     cycle_counter cycle_counter(
         .i_clk(i_clk),
-        .i_en(state == STATE_EXEC),
+        .i_en(cycle_counter_en),
         .o_count(cycle_count),
-        .o_err(timeout),
+        .o_err(cycle_counter_err),
     );
-
-    // Check for timeouts.
-    always @(posedge i_clk) begin
-          // If the counter timed out, transition to the error state.
-          if (timeout) begin
-              errs[ERRBIT_CNT] = 1;
-          end
-    end
 
 endmodule
 
