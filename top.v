@@ -77,6 +77,7 @@ module top(input wire clk_25mhz,
 
                 STATE_INIT: begin
                     o_led[1] = 1; // orange led for init
+                    uart_tx_data_valid <= 0;
 
                     // If the serial receiver is done, transition to the exec state.
                     if (uart_rx_done) begin
@@ -99,31 +100,32 @@ module top(input wire clk_25mhz,
 
                     // If the CPU is done, transition to the done state and print a message.
                     if (cpu_done) begin
-                        uart_tx_fifo[39:0] <= 40'h646f6e6521; // 'done!'
-                        uart_tx_fifo_bytelength <= 5;
+                        // uart_tx_fifo[39:0] <= 40'h646f6e6521; // 'done!'
+                        // uart_tx_fifo_bytelength <= 5;
+                        uart_tx_data = 8'h61; // 'a'
+                        uart_tx_data_valid <= 1;
                         next_state <= STATE_DONE;
                     end
                 end
 
                 STATE_DONE: begin
                     o_led[2] = 1; // green led for done
-                    o_led[6] = uart_tx_fifo_bytelength > 0;
                     o_led[7] = uart_tx_ready;
 
                     // If the UART transmitter is ready and there is data in the FIFO, send it.
-                    if (uart_tx_ready && uart_tx_fifo_bytelength > 0) begin
-                        uart_tx_data <= uart_tx_fifo[7:0];
+                    if (uart_tx_ready) begin
+                        if (uart_tx_data == 8'h7a) begin
+                            uart_tx_data <= 8'h61; // 'a'
+                        end else begin
+                            uart_tx_data <= uart_tx_data + 1;
+                        end
                         uart_tx_data_valid <= 1;
-                        uart_tx_fifo <= { uart_tx_fifo[7:0], uart_tx_fifo[39:8] };
-                        /*
-                        uart_tx_fifo <= { 8'h00, uart_tx_fifo[(UART_TX_FIFO_LENGTH*8)-1:8] };
-                        uart_tx_fifo_bytelength <= uart_tx_fifo_bytelength - 1;
-                        */
                     end
                 end
 
                 STATE_ERRS: begin
                     o_led[0] = 1; // red led for errors
+                    uart_tx_data_valid <= 0;
 
                     // Set additional LEDs to error flags.
                     // TODO: uncomment
@@ -215,15 +217,15 @@ module uart_tx(input wire i_clk,
     localparam STATE_SEND = 1'd1;
     reg [1:0] state = STATE_WAIT;
 
-    reg [9:0] send_data;
-    reg [3:0] send_bits = 0;
+    reg [9:0] send_data = ~0;
+    reg [3:0] send_bits;
     reg [31:0] send_hold;
 
     // Baud rate 115200, clock 25MHz
     localparam HOLD_CYCLES = 25000000 / 115200;
 
     assign o_tx = send_data[0];
-    assign o_ready = i_en && (send_bits == 0);
+    assign o_ready = state == STATE_WAIT;
 
     always @(posedge i_clk) begin
         if (i_en) begin
@@ -238,7 +240,6 @@ module uart_tx(input wire i_clk,
                         state <= STATE_SEND;
                     end else begin
                         send_data <= ~0;
-                        send_bits <= 0;
                     end
                 end
 
@@ -258,6 +259,10 @@ module uart_tx(input wire i_clk,
                 end
 
             endcase
+        end
+        else begin
+            // When not enabled, continuously send 1 to avoid the receiver trying to interpret noise.
+            send_data <= ~0;
         end
     end
 
