@@ -189,6 +189,9 @@ module top(input wire clk_25mhz,
             end
             STATE_DONE: begin
                 o_led[2] = 1;
+                o_led[5] = uart_tx_ready;
+                o_led[6] = uart_tx_data_valid;
+                o_led[7] = (memdump_byte_offset < MEM_BYTES);
                 // If the UART transmitter is ready and there is still
                 // something to print from the "done" message or memdump, then
                 // send the next byte.
