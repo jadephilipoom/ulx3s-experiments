@@ -40,9 +40,9 @@ module top(input wire clk_25mhz,
 
     assign uart_rx_en = (state == STATE_INIT);
     reg [7:0] uart_rx_data;
-    wire uart_rx_data_valid;
-    wire uart_rx_done;
-    wire uart_rx_err;
+    reg uart_rx_data_valid;
+    reg uart_rx_done;
+    reg uart_rx_err;
     uart_rx uart_rx(
         .i_clk(i_clk),
         .i_en(uart_rx_en),
@@ -57,8 +57,8 @@ module top(input wire clk_25mhz,
     assign uart_tx_en = (state == STATE_DONE);
     reg [7:0] uart_tx_data;
     reg uart_tx_data_valid;
-    wire uart_tx_ready;
-    wire uart_tx_err;
+    reg uart_tx_ready;
+    reg uart_tx_err;
     uart_tx uart_tx(
         .i_clk(i_clk),
         .i_en(uart_tx_en),
@@ -71,8 +71,8 @@ module top(input wire clk_25mhz,
     );
 
     assign cpu_en = (state == STATE_EXEC);
-    wire cpu_done;
-    wire cpu_err;
+    reg cpu_done;
+    reg cpu_err;
     cpu cpu(
         .i_clk(i_clk),
         .i_en(cpu_en),
@@ -83,7 +83,7 @@ module top(input wire clk_25mhz,
 
     wire [63:0] cycle_count;
     assign cycle_counter_en = (state == STATE_EXEC);
-    wire cycle_counter_err;
+    reg cycle_counter_err;
     cycle_counter cycle_counter(
         .i_clk(i_clk),
         .i_en(cycle_counter_en),
@@ -167,72 +167,7 @@ module top(input wire clk_25mhz,
                             uart_tx_data <= done_msg_prefix_chars[done_msg_bytes_sent];
                         end else if (done_msg_bytes_sent < 33) begin
                             // uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
-                            case (cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset])
-
-                                0: begin
-                                    uart_tx_data <= 8'h30;
-                                end
-
-                                1: begin
-                                    uart_tx_data <= 8'h31;
-                                end
-
-                                2: begin
-                                    uart_tx_data <= 8'h32;
-                                end
-
-                                3: begin
-                                    uart_tx_data <= 8'h33;
-                                end
-
-                                4: begin
-                                    uart_tx_data <= 8'h34;
-                                end
-
-                                5: begin
-                                    uart_tx_data <= 8'h35;
-                                end
-
-                                6: begin
-                                    uart_tx_data <= 8'h36;
-                                end
-
-                                7: begin
-                                    uart_tx_data <= 8'h37;
-                                end
-
-                                8: begin
-                                    uart_tx_data <= 8'h38;
-                                end
-
-                                9: begin
-                                    uart_tx_data <= 8'h39;
-                                end
-
-                                10: begin
-                                    uart_tx_data <= 8'h61;
-                                end
-
-                                11: begin
-                                    uart_tx_data <= 8'h62;
-                                end
-
-                                12: begin
-                                    uart_tx_data <= 8'h63;
-                                end
-
-                                13: begin
-                                    uart_tx_data <= 8'h64;
-                                end
-
-                                14: begin
-                                    uart_tx_data <= 8'h65;
-                                end
-
-                                15: begin
-                                    uart_tx_data <= 8'h66;
-                                end
-                            endcase
+                            uart_tx_data <= 8'h61;
                             cycle_count_bit_offset <= cycle_count_bit_offset - 4;
                         end else if (done_msg_bytes_sent < 35) begin
                             uart_tx_data <= done_msg_suffix_chars[done_msg_bytes_sent - 33];
@@ -288,9 +223,9 @@ module uart_rx(input wire i_clk,
                input wire i_rst,
                input wire i_rx,
                output [7:0] o_data,
-               output wire o_data_valid,
-               output wire o_done,
-               output wire o_err);
+               output o_data_valid,
+               output o_done,
+               output o_err);
 
     localparam STATE_WAIT = 2'd0; // Waiting for start sequence.
     localparam STATE_READ = 2'd1; // Reading data until end sequence.
@@ -399,8 +334,8 @@ endmodule
 module cpu(input wire i_clk,
            input wire i_en,
            input wire i_rst,
-           output wire o_err,
-           output wire o_done);
+           output o_err,
+           output o_done);
 
     // TODO: remove
     reg [24:0] cycle_count = 0;
@@ -429,7 +364,7 @@ module cycle_counter(input wire i_clk,
                      input wire i_en,
                      input wire i_rst,
                      output [63:0] o_count,
-                     output wire o_err);
+                     output o_err);
 
     reg [63:0] count;
     localparam MAX_COUNT = 64'hffffffffffffffff;
