@@ -166,7 +166,12 @@ module top(input wire clk_25mhz,
                         if (done_msg_bytes_sent < 17) begin
                             uart_tx_data <= done_msg_prefix_chars[done_msg_bytes_sent];
                         end else if (done_msg_bytes_sent < 33) begin
-                            uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
+                            // uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
+                            if (cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset] >= 4'd10) begin
+                                uart_tx_data <= 8'h61;
+                            end else begin
+                                uart_tx_data <= 8'h31;
+                            end
                             cycle_count_bit_offset <= cycle_count_bit_offset - 4;
                         end else if (done_msg_bytes_sent < 35) begin
                             uart_tx_data <= done_msg_suffix_chars[done_msg_bytes_sent - 33];
