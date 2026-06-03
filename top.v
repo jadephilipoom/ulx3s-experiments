@@ -124,38 +124,23 @@ module top(input wire clk_25mhz,
         end
     endfunction
 
-    // Split the state machine into two halves:
-    // - A combinational section that takes in only state, and produces logic output. That's this
-    //   part immediately below
-    // - A sequential section that takes combinational outputs and puts them through registers. That's
-    //   in the always @ clocked block below.
-    //
-    // The prior implementation was trying to assign things in the same blocks that would reference
-    // them - this actually leads to latches being inferred, and/or combinational cycles, which can
-    // result in unpredictable/undefined behavior.
+    // This section takes in state and produces logic output that will be
+    // consumed by the sequential section below. Variables should not be
+    // updated in any other blocks.
     always @(*) begin
+        // Because this block uses blocking operations, we can set a bunch of
+        // default values in the beginning and override them conditionally
+        // later.
         o_led[7:0] = 0;
         decrement_bit_offset = 0;
         clear_bytes_sent = 0;
         inc_bytes_sent = 0;
-        // so the set/clr bits here are combinational signals that tell the sequential section
-        // below that it should set or clear the bits. There's many ways to do this, I wouldn't
-        // necessarily have coded it like this from a clean sheet but I'm trying to retrofit
-        // your concepts into syntactically clean verilog.
         set_uart_tx_data_valid = 0;
         clr_uart_tx_data_valid = 0;
         inc_cycle_count = 0;
         cycle_count_err = 0;
         uart_tx_data = 0;
-        next_state = state; // sets a default value for state.
-        // we're using "blocking" operations here, so the values are applied "as you read the code"
-        // i.e., next_state gets state because of the line above, but will be overridden by any
-        // statements later on that mutate that. While it is technically legal in verilog to
-        // make variables that are referenced across multiple always @ blocks, in practice, this
-        // can lead to synthesis problems. If you want your code to be ASIC-ready, try to keep
-        // all the variables that you *update* within a single block (you can reference them
-        // anywhere else, but the "left hand sides" should generally try to all be within a
-        // single always block, and ideally, within a single statement block)
+        next_state = state;
         case(state)
             STATE_INIT: begin
                 o_led[1] = 1;
@@ -186,7 +171,8 @@ module top(input wire clk_25mhz,
             STATE_DONE: begin
                 o_led[2] = 1;
                 // If the UART transmitter is ready and there is still
-                // something to print, send the next byte.
+                // something to print from the "done" message, send the next
+                // byte.
                 if (uart_tx_ready && uart_tx_data_valid) begin
                     if (done_msg_bytes_sent < 17) begin
                         uart_tx_data = done_msg_prefix_chars[done_msg_bytes_sent];
@@ -246,16 +232,12 @@ module top(input wire clk_25mhz,
             if (decrement_bit_offset) begin
                 cycle_count_bit_offset <= cycle_count_bit_offset - 4;
             end
-            // I've hoisted done_msg_bytes_sent out of the comb loop and stuck it down here,
-            // and its state is only updated based on pure combinational computed in the
-            // always @(*) comb block above.
             if (clear_bytes_sent) begin
                 done_msg_bytes_sent <= 0;
             end else if (inc_bytes_sent) begin
                 done_msg_bytes_sent <= done_msg_bytes_sent + 1;
             end
-            // Here I give reset and clear precedence over set. This resolves the question of
-            // what happens if both clr and set are set at the same time.
+            // Give reset and clear precedence over set.
             if (i_rst || clr_uart_tx_data_valid) begin
                 uart_tx_data_valid <= 0;
             end else if (set_uart_tx_data_valid) begin
