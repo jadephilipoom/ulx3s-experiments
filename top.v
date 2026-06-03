@@ -34,7 +34,7 @@ module top(input wire clk_25mhz,
 
     // FIFO for data to send via serial.
     localparam UART_TX_FIFO_DEPTH = 64;
-    reg [7:0] uart_tx_fifo [0:UART_TX_FIFO_DEPTH-1];
+    reg [7:0] uart_tx_fifo [0:UART_TX_FIFO_DEPTH-1]; // FIFO depth was 65, not 64
     reg [6:0] uart_tx_fifo_bytelength = 0;
     reg [6:0] uart_tx_fifo_offset = 0;
 
@@ -134,16 +134,36 @@ module top(input wire clk_25mhz,
         end
     endfunction
 
-    // split oled into a combinational interpretation of state
+    // Split the state machine into two halves:
+    // - A combinational section that takes in only state, and produces logic output. That's this
+    //   part immediately below
+    // - A sequential section that takes combinational outputs and puts them through registers. That's
+    //   in the always @ clocked block below.
+    //
+    // The prior implementation was trying to assign things in the same blocks that would reference
+    // them - this actually leads to latches being inferred, and/or combinational cycles, which can
+    // result in unpredictable/undefined behavior.
     always @(*) begin
         o_led[7:0] = 0;
         decrement_bit_offset = 0;
         clear_bytes_sent = 0;
         inc_bytes_sent = 0;
+        // so the set/clr bits here are combinational signals that tell the sequential section
+        // below that it should set or clear the bits. There's many ways to do this, I wouldn't
+        // necessarily have coded it like this from a clean sheet but I'm trying to retrofit
+        // your concepts into syntactically clean verilog.
         set_uart_tx_data_valid = 0;
         clr_uart_tx_data_valid = 0;
         uart_tx_data = 0;
-        next_state = state; // sets a default value for state
+        next_state = state; // sets a default value for state.
+        // we're using "blocking" operations here, so the values are applied "as you read the code"
+        // i.e., next_state gets state because of the line above, but will be overridden by any
+        // statements later on that mutate that. While it is technically legal in verilog to
+        // make variables that are referenced across multiple always @ blocks, in practice, this
+        // can lead to synthesis problems. If you want your code to be ASIC-ready, try to keep
+        // all the variables that you *update* within a single block (you can reference them
+        // anywhere else, but the "left hand sides" should generally try to all be within a
+        // single always block, and ideally, within a single statement block)
         case(state)
             STATE_INIT: begin
                 o_led[1] = 1;
@@ -195,7 +215,9 @@ module top(input wire clk_25mhz,
         endcase
     end
 
-    // Main state machine.
+    // Main state machine. This triggers on every clock edge, and observes all the blocking operations
+    // computed in the combinational state above, and stores them in registers, so that the next round
+    // of combinational logic has fresh inputs.
     always @(posedge i_clk) begin
         // Update error bits.
         errs[ERRBIT_CNT] <= errs[ERRBIT_CNT] || (cycle_counter_en && cycle_counter_err);
@@ -204,6 +226,11 @@ module top(input wire clk_25mhz,
         errs[ERRBIT_MEM] <= errs[ERRBIT_MEM] || 0; // TODO
 
         // Check for errors or reset that would intercept the state change.
+        // "ASIC ready" code would put all the reset clauses in this first "if" block - because
+        // this would allow you to do e.g. `negedge rst_n` triggered async clear, making a clear
+        // inference to a particular type of register. Unfortunately, FPGAs don't support this, and
+        // so you have this constant tension between FPGA-ready code and ASIC-ready code. This style
+        // is very much FPGA-ready.
         if (i_rst) begin
             state <= STATE_INIT;
             errs <= 0;
@@ -219,11 +246,16 @@ module top(input wire clk_25mhz,
             if (decrement_bit_offset) begin
                 cycle_count_bit_offset <= cycle_count_bit_offset - 4;
             end
+            // I've hoisted done_msg_bytes_sent out of the comb loop and stuck it down here,
+            // and its state is only updated based on pure combinational computed in the
+            // always @(*) comb block above.
             if (clear_bytes_sent) begin
                 done_msg_bytes_sent <= 1;
             end else if (inc_bytes_sent) begin
                 done_msg_bytes_sent <= done_msg_bytes_sent + 1;
             end
+            // Here I give reset and clear precedence over set. This resolves the question of
+            // what happens if both clr and set are set at the same time.
             if (i_rst || clr_uart_tx_data_valid) begin
                 uart_tx_data_valid <= 0;
             end else if (set_uart_tx_data_valid) begin
