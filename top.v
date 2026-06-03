@@ -250,7 +250,7 @@ module top(input wire clk_25mhz,
             // and its state is only updated based on pure combinational computed in the
             // always @(*) comb block above.
             if (clear_bytes_sent) begin
-                done_msg_bytes_sent <= 1;
+                done_msg_bytes_sent <= 0;
             end else if (inc_bytes_sent) begin
                 done_msg_bytes_sent <= done_msg_bytes_sent + 1;
             end
