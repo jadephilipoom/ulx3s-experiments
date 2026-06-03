@@ -38,7 +38,7 @@ module top(input wire clk_25mhz,
     reg [4:0] uart_tx_fifo_bytelength = 0;
     reg [4:0] uart_tx_fifo_offset = 0;
 
-    wire uart_rx_en = (state == STATE_INIT);
+    assign uart_rx_en = (state == STATE_INIT);
     reg [7:0] uart_rx_data;
     wire uart_rx_data_valid;
     wire uart_rx_done;
@@ -54,7 +54,7 @@ module top(input wire clk_25mhz,
         .o_err(uart_rx_err),
     );
 
-    wire uart_tx_en = (state == STATE_DONE);
+    assign uart_tx_en = (state == STATE_DONE);
     wire uart_tx_data_valid;
     wire uart_tx_ready;
     wire uart_tx_err;
@@ -69,7 +69,7 @@ module top(input wire clk_25mhz,
         .o_err(uart_tx_err),
     );
 
-    wire cpu_en = (state == STATE_EXEC);
+    assign cpu_en = (state == STATE_EXEC);
     wire cpu_done;
     wire cpu_err;
     cpu cpu(
@@ -202,7 +202,7 @@ module top(input wire clk_25mhz,
     end
 
     reg [63:0] cycle_count;
-    wire cycle_counter_en = (state == STATE_EXEC);
+    assign cycle_counter_en = (state == STATE_EXEC);
     wire cycle_counter_err;
     cycle_counter cycle_counter(
         .i_clk(i_clk),
