@@ -80,7 +80,7 @@ module top(input wire clk_25mhz,
     // Set up cycle counter.
     reg [63:0] cycle_count = 0;
     reg inc_cycle_count;
-    wire cycle_count_err;
+    reg cycle_count_err;
     localparam MAX_CYCLE_COUNT = 64'hffffffffffffffff;
 
     // Tracking for printing message at the end of exec. Cycle count is printed
@@ -145,6 +145,7 @@ module top(input wire clk_25mhz,
         set_uart_tx_data_valid = 0;
         clr_uart_tx_data_valid = 0;
         inc_cycle_count = 0;
+        cycle_count_err = 0;
         uart_tx_data = 0;
         next_state = state; // sets a default value for state.
         // we're using "blocking" operations here, so the values are applied "as you read the code"
@@ -170,7 +171,7 @@ module top(input wire clk_25mhz,
                 inc_cycle_count = 1;
 
                 // Check if the cycle counter will overflow.
-                if (cycle_count >= MAX_CYCLE_COUNT) begin
+                if (cycle_count == MAX_CYCLE_COUNT) begin
                     cycle_count_err = 1;
                 end
 
