@@ -148,8 +148,6 @@ module top(input wire clk_25mhz,
 
                 STATE_DONE: begin
                     o_led[2] = 1; // green led for done
-                    o_led[6] = uart_tx_data_valid;
-                    o_led[7] = uart_tx_ready;
 
                     // If the UART transmitter is ready and there is data in the FIFO, send it.
                     if (uart_tx_ready && uart_tx_data_valid) begin
@@ -181,8 +179,8 @@ module top(input wire clk_25mhz,
 
         errs[ERRBIT_CNT] <= cycle_counter_en && cycle_counter_err;
         errs[ERRBIT_SER] <= (uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err);
-        // errs[ERRBIT_CPU]
-        // errs[ERRBIT_MEM]
+        errs[ERRBIT_CPU] <= cpu_en && cpu_err;
+        // errs[ERRBIT_MEM] <= 0;
         if (errs != 0) begin
             state <= STATE_ERRS;
         end else begin
