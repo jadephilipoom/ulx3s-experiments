@@ -167,7 +167,7 @@ module top(input wire clk_25mhz,
                             uart_tx_data <= done_msg_prefix_chars[done_msg_bytes_sent];
                         end else if (done_msg_bytes_sent < 33) begin
                             // uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
-                            case (cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset] >= 4'd10)
+                            case (cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset])
 
                                 0: begin
                                     uart_tx_data <= 8'h30;
