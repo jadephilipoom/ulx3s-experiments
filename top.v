@@ -48,7 +48,7 @@ module top(input wire clk_25mhz,
     );
 
     reg [7:0] uart_tx_data;
-    wire uart_tx_data_valid = 0;
+    wire uart_tx_data_valid;
     wire uart_tx_ready;
     wire uart_tx_err;
     uart_tx uart_tx(
@@ -110,16 +110,16 @@ module top(input wire clk_25mhz,
 
                 STATE_DONE: begin
                     o_led[2] = 1; // green led for done
+                    o_led[6] = uart_tx_data_valid;
                     o_led[7] = uart_tx_ready;
 
                     // If the UART transmitter is ready and there is data in the FIFO, send it.
-                    if (uart_tx_ready) begin
+                    if (uart_tx_ready && uart_tx_data_valid) begin
                         if (uart_tx_data == 8'h7a) begin
                             uart_tx_data <= 8'h61; // 'a'
                         end else begin
                             uart_tx_data <= uart_tx_data + 1;
                         end
-                        uart_tx_data_valid <= 1;
                     end
                 end
 
