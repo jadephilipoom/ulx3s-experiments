@@ -40,9 +40,9 @@ module top(input wire clk_25mhz,
 
     assign uart_rx_en = (state == STATE_INIT);
     reg [7:0] uart_rx_data;
-    reg uart_rx_data_valid;
-    reg uart_rx_done;
-    reg uart_rx_err;
+    wire uart_rx_data_valid;
+    wire uart_rx_done;
+    wire uart_rx_err;
     uart_rx uart_rx(
         .i_clk(i_clk),
         .i_en(uart_rx_en),
@@ -57,8 +57,8 @@ module top(input wire clk_25mhz,
     assign uart_tx_en = (state == STATE_DONE);
     reg [7:0] uart_tx_data;
     reg uart_tx_data_valid;
-    reg uart_tx_ready;
-    reg uart_tx_err;
+    wire uart_tx_ready;
+    wire uart_tx_err;
     uart_tx uart_tx(
         .i_clk(i_clk),
         .i_en(uart_tx_en),
@@ -71,8 +71,8 @@ module top(input wire clk_25mhz,
     );
 
     assign cpu_en = (state == STATE_EXEC);
-    reg cpu_done;
-    reg cpu_err;
+    wire cpu_done;
+    wire cpu_err;
     cpu cpu(
         .i_clk(i_clk),
         .i_en(cpu_en),
@@ -83,7 +83,7 @@ module top(input wire clk_25mhz,
 
     wire [63:0] cycle_count;
     assign cycle_counter_en = (state == STATE_EXEC);
-    reg cycle_counter_err;
+    wire cycle_counter_err;
     cycle_counter cycle_counter(
         .i_clk(i_clk),
         .i_en(cycle_counter_en),
@@ -166,8 +166,7 @@ module top(input wire clk_25mhz,
                         if (done_msg_bytes_sent < 17) begin
                             uart_tx_data <= done_msg_prefix_chars[done_msg_bytes_sent];
                         end else if (done_msg_bytes_sent < 33) begin
-                            // uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
-                            uart_tx_data <= "0" + cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset];
+                            uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
                             cycle_count_bit_offset <= cycle_count_bit_offset - 4;
                         end else if (done_msg_bytes_sent < 35) begin
                             uart_tx_data <= done_msg_suffix_chars[done_msg_bytes_sent - 33];
@@ -223,9 +222,9 @@ module uart_rx(input wire i_clk,
                input wire i_rst,
                input wire i_rx,
                output [7:0] o_data,
-               output o_data_valid,
-               output o_done,
-               output o_err);
+               output wire o_data_valid,
+               output wire o_done,
+               output wire o_err);
 
     localparam STATE_WAIT = 2'd0; // Waiting for start sequence.
     localparam STATE_READ = 2'd1; // Reading data until end sequence.
@@ -292,7 +291,7 @@ module uart_tx(input wire i_clk,
     always @(posedge i_clk) begin
         if (i_rst) begin
             cycle_count <= 0;
-            state <= STATE_WAIT;
+            state = STATE_WAIT;
             send_data <= ~0;
             o_err <= 0;
         end else if (i_en) begin
@@ -334,8 +333,8 @@ endmodule
 module cpu(input wire i_clk,
            input wire i_en,
            input wire i_rst,
-           output o_err,
-           output o_done);
+           output wire o_err,
+           output wire o_done);
 
     // TODO: remove
     reg [24:0] cycle_count = 0;
@@ -348,12 +347,11 @@ module cpu(input wire i_clk,
             o_err <= 0;
         end else if (i_en) begin
             // TODO
-            o_err <= 0;
+            o_err = 0;
+            o_done = 0;
             cycle_count <= cycle_count + 1;
             if (cycle_count >= DELAY) begin
-                o_done <= 1;
-            end else begin
-                o_done <= 0;
+                o_done = 1;
             end
         end
     end
@@ -364,8 +362,8 @@ endmodule
 module cycle_counter(input wire i_clk,
                      input wire i_en,
                      input wire i_rst,
-                     output reg [63:0] o_count,
-                     output reg o_err);
+                     output [63:0] o_count,
+                     output wire o_err);
 
     reg [63:0] count;
     localparam MAX_COUNT = 64'hffffffffffffffff;
@@ -377,15 +375,15 @@ module cycle_counter(input wire i_clk,
 
     always @(posedge i_clk) begin
         if (i_rst) begin
-            count <= 0;
-            o_err <= 0;
+            count = 0;
+            o_err = 0;
         end else if (i_en) begin
-            count <= count + 1;
+            count = count + 1;
             if (count >= MAX_COUNT) begin
                 // Counter overflow.
-                o_err <= 1;
+                o_err = 1;
             end
-            o_count <= count;
+            o_count = count;
         end
     end
 
