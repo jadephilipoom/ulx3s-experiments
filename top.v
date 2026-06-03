@@ -293,7 +293,12 @@ module uart_tx(input wire i_clk,
     assign o_ready = state == STATE_WAIT;
 
     always @(posedge i_clk) begin
-        if (i_en) begin
+        if (i_rst) begin
+            cycle_count <= 0;
+            state = STATE_WAIT;
+            send_data <= ~0;
+            o_err <= 0;
+        end else if (i_en) begin
             o_err = 0;
             case (state)
 
@@ -324,10 +329,6 @@ module uart_tx(input wire i_clk,
                 end
 
             endcase
-        end
-        else begin
-            // When not enabled, continuously send 1 to avoid the receiver trying to interpret noise.
-            send_data <= ~0;
         end
     end
 
@@ -364,6 +365,7 @@ endmodule
 // Cycle count incrementer.
 module cycle_counter(input wire i_clk,
                      input wire i_en,
+                     input wire i_rst,
                      output [63:0] o_count,
                      output wire o_err);
 
@@ -372,8 +374,10 @@ module cycle_counter(input wire i_clk,
     localparam MAX_COUNT = 64'hffffffffffffffff;
 
     always @(posedge i_clk) begin
-        o_err = 0;
-        if (i_en) begin
+        if (i_rst) begin
+            count <= 0;
+            o_err <= 0;
+        end else if (i_en) begin
             count <= count + 1;
             if (count >= MAX_COUNT) begin
                 // Counter overflow.
