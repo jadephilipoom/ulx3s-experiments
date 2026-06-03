@@ -167,11 +167,72 @@ module top(input wire clk_25mhz,
                             uart_tx_data <= done_msg_prefix_chars[done_msg_bytes_sent];
                         end else if (done_msg_bytes_sent < 33) begin
                             // uart_tx_data <= ascii_hex_nibble(cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset]);
-                            if (cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset] >= 4'd10) begin
-                                uart_tx_data <= 8'h61;
-                            end else begin
-                                uart_tx_data <= 8'h31;
-                            end
+                            case (cycle_count[cycle_count_bit_offset+3:cycle_count_bit_offset] >= 4'd10)
+
+                                0: begin
+                                    uart_tx_data <= 8'h30;
+                                end
+
+                                1: begin
+                                    uart_tx_data <= 8'h31;
+                                end
+
+                                2: begin
+                                    uart_tx_data <= 8'h32;
+                                end
+
+                                3: begin
+                                    uart_tx_data <= 8'h33;
+                                end
+
+                                4: begin
+                                    uart_tx_data <= 8'h34;
+                                end
+
+                                5: begin
+                                    uart_tx_data <= 8'h35;
+                                end
+
+                                6: begin
+                                    uart_tx_data <= 8'h36;
+                                end
+
+                                7: begin
+                                    uart_tx_data <= 8'h37;
+                                end
+
+                                8: begin
+                                    uart_tx_data <= 8'h38;
+                                end
+
+                                9: begin
+                                    uart_tx_data <= 8'h39;
+                                end
+
+                                10: begin
+                                    uart_tx_data <= 8'h61;
+                                end
+
+                                11: begin
+                                    uart_tx_data <= 8'h62;
+                                end
+
+                                12: begin
+                                    uart_tx_data <= 8'h63;
+                                end
+
+                                13: begin
+                                    uart_tx_data <= 8'h64;
+                                end
+
+                                14: begin
+                                    uart_tx_data <= 8'h65;
+                                end
+
+                                15: begin
+                                    uart_tx_data <= 8'h66;
+                                end
+                            endcase
                             cycle_count_bit_offset <= cycle_count_bit_offset - 4;
                         end else if (done_msg_bytes_sent < 35) begin
                             uart_tx_data <= done_msg_suffix_chars[done_msg_bytes_sent - 33];
