@@ -84,8 +84,8 @@ module top(input wire clk_25mhz,
     // Set up a counter for the number of serial bytes read in the init phase.
     reg [31:0] loaded_bytes;
     reg load_mem_byte;
-    localparam INIT_LOAD_BYTES = 4;
-    reg [7:0] mem [0:INIT_LOAD_BYTES-1]; 
+    localparam MEM_BYTES = 32'd16;
+    reg [7:0] mem [0:MEM_BYTES-1];
 
     // Tracking for printing message at the end of exec. Cycle count is printed
     // in hex between prefix and suffix.
@@ -121,6 +121,13 @@ module top(input wire clk_25mhz,
         done_msg_suffix_chars[ 1] = 8'h0a; // '\n'
     end
 
+    // Tracking for printing the memdump.
+    reg [31:0] memdump_line_offset;
+    reg [31:0] memdump_byte_offset;
+    reg inc_memdump_byte_offset;
+    reg inc_memdump_line_offset;
+    reg clr_memdump_line_offset;
+
     // Function for converting a nibble to ASCII hex.
     function [7:0] ascii_hex_nibble(input [3:0] n);
         begin
@@ -143,6 +150,9 @@ module top(input wire clk_25mhz,
         set_uart_tx_data_valid = 0;
         clr_uart_tx_data_valid = 0;
         inc_cycle_count = 0;
+        clr_memdump_line_offset = 0;
+        inc_memdump_byte_offset = 0;
+        inc_memdump_line_offset = 0;
         cycle_count_err = 0;
         uart_tx_data = 0;
         next_state = state;
@@ -152,7 +162,7 @@ module top(input wire clk_25mhz,
                 clr_uart_tx_data_valid = 1;
 
                 // If we got all the bytes we need, transition to the exec state.
-                if (loaded_bytes >= INIT_LOAD_BYTES) begin
+                if (loaded_bytes >= MEM_BYTES) begin
                     next_state = STATE_EXEC;
                 end else if (uart_rx_en && uart_rx_data_valid) begin
                     // If a new byte is ready from the serial receiver, write
@@ -180,8 +190,8 @@ module top(input wire clk_25mhz,
             STATE_DONE: begin
                 o_led[2] = 1;
                 // If the UART transmitter is ready and there is still
-                // something to print from the "done" message, send the next
-                // byte.
+                // something to print from the "done" message or memory, then
+                // send the next byte.
                 if (uart_tx_ready && uart_tx_data_valid) begin
                     if (done_msg_bytes_sent < 17) begin
                         uart_tx_data = done_msg_prefix_chars[done_msg_bytes_sent];
@@ -190,6 +200,86 @@ module top(input wire clk_25mhz,
                         decrement_bit_offset = 1;
                     end else if (done_msg_bytes_sent < 35) begin
                         uart_tx_data = done_msg_suffix_chars[done_msg_bytes_sent - 33];
+                    end else if (memdump_byte_offset < MEM_BYTES) begin
+                        inc_memdump_line_offset = 1;
+                        case (memdump_line_offset)
+                            // Address
+                            0: begin
+                                uart_tx_data = ascii_hex_nibble(memdump_byte_offset[15:12]);
+                            end
+                            1: begin
+                                uart_tx_data = ascii_hex_nibble(memdump_byte_offset[11:8]);
+                            end
+                            2: begin
+                                uart_tx_data = ascii_hex_nibble(memdump_byte_offset[7:4]);
+                            end
+                            3: begin
+                                uart_tx_data = ascii_hex_nibble(memdump_byte_offset[3:0]);
+                            end
+                            4: begin
+                                uart_tx_data = 8'h20; // ' '
+                            end
+                            // Data (4 bytes per line)
+                            5: begin
+                                uart_tx_data = 8'h61;
+                            end
+                            6: begin
+                                uart_tx_data = 8'h61;
+                            end
+                            7: begin
+                                uart_tx_data = 8'h61;
+                            end
+                            8: begin
+                                uart_tx_data = 8'h61;
+                            end
+                            9: begin
+                                uart_tx_data = 8'h62;
+                            end
+                            10: begin
+                                uart_tx_data = 8'h62;
+                            end
+                            11: begin
+                                uart_tx_data = 8'h62;
+                            end
+                            12: begin
+                                uart_tx_data = 8'h62;
+                            end
+                            /*
+                            5: begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset + 0][7:4]);
+                            end
+                            6: begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset + 0][3:0]);
+                            end
+                            7: begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset + 1][7:4]);
+                            end
+                            8: begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset + 1][3:0]);
+                            end
+                            9: begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset + 2][7:4]);
+                            end
+                            10: begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset + 2][3:0]);
+                            end
+                            11: begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset + 3][7:4]);
+                            end
+                            12: begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset + 3][3:0]);
+                            end
+                            */
+                            // Newline
+                            13: begin
+                                uart_tx_data = 8'h0d; // '\r'
+                            end
+                            14: begin
+                                uart_tx_data = 8'h0a; // '\n'
+                                inc_memdump_byte_offset = 1;
+                                clr_memdump_line_offset = 1;
+                            end
+                        endcase
                     end else begin
                         clr_uart_tx_data_valid = 1;
                     end
@@ -232,6 +322,8 @@ module top(input wire clk_25mhz,
             done_msg_bytes_sent <= 0;
             cycle_count_bit_offset <= 6'd60;
             cycle_count <= 0;
+            memdump_byte_offset <= 0;
+            memdump_line_offset <= 0;
         end else if (errs) begin
             state <= STATE_ERRS;
         end else begin
@@ -256,6 +348,17 @@ module top(input wire clk_25mhz,
                 uart_tx_data_valid <= 0;
             end else if (set_uart_tx_data_valid) begin
                 uart_tx_data_valid <= 1;
+            end
+            if (inc_memdump_byte_offset) begin
+                memdump_byte_offset <= memdump_byte_offset + 4;
+            end
+            // Clearing the memdump line offset takes precedence over
+            // incrementing it.
+            if (clr_memdump_line_offset) begin
+                memdump_line_offset <= 0;
+            end
+            if (inc_memdump_line_offset) begin
+                memdump_line_offset <= memdump_line_offset + 1;
             end
         end
 
