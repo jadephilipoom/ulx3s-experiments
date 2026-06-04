@@ -216,10 +216,10 @@ module top(input wire clk_25mhz,
                             uart_tx_data = 8'h20; // ' '
                         end else if (memdump_line_offset < 13) begin
                             if (memdump_line_offset & 1'd1) begin
+                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset][7:4]);
+                            end else begin
                                 uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset][3:0]);
                                 inc_memdump_byte_offset = 1;
-                            end else begin
-                                uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset][7:4]);
                             end
                         end else if (memdump_line_offset == 13) begin
                             uart_tx_data = 8'h0d; // '\r'
