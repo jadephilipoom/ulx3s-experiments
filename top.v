@@ -18,14 +18,11 @@ module top(input wire clk_25mhz,
     assign led = o_led;
 
    // Set up basic state machine.
-    localparam STATE_INIT = 3'd0; // Initializing; program not yet loaded.
-    localparam STATE_EXEC = 3'd1; // Executing the program.
-    localparam STATE_DONE = 3'd2; // Program exited successfully (terminal state except for memdumps).
-    localparam STATE_ERRS = 3'd3; // Crashed due to failures (terminal state except for memdumps).
-    localparam STATE_MEMDUMP = 3'd4; // Dumping memory contents.
+    localparam STATE_INIT = 2'd0; // Initializing; program not yet loaded.
+    localparam STATE_EXEC = 2'd1; // Executing the program.
+    localparam STATE_DONE = 2'd2; // Program exited (terminal state).
     reg [2:0] state = STATE_INIT;
     reg [2:0] next_state = STATE_INIT;
-    reg [2:0] memdump_next_state;
 
     // Error flags.
     localparam ERRBIT_CNT = 2'd0;  // Error from the cycle counter.
@@ -172,6 +169,7 @@ module top(input wire clk_25mhz,
         set_uart_tx_data_valid = 0;
         clr_uart_tx_data_valid = 0;
         inc_cycle_count = 0;
+        clr_memdump_byte_offset = 0;
         clr_memdump_line_offset = 0;
         inc_memdump_byte_offset = 0;
         inc_memdump_line_offset = 0;
@@ -239,11 +237,17 @@ module top(input wire clk_25mhz,
                 end
             end
             STATE_DONE: begin
-                o_led[2] = 1;
+                o_led[0] = (errs != 0); // Red LED on if errors.
+                o_led[2] = (errs == 0); // Green LED on if no errors.
+                // Set additional LEDs to error flags.
+                o_led[4] = errs[0];
+                o_led[5] = uart_tx_ready; // errs[1];
+                o_led[6] = uart_tx_data_valid; // errs[2];
+                o_led[7] = memdump_byte_offset < MEM_BYTES; // errs[3];
                 // If the UART transmitter is ready and there is still
                 // something to print from the "done" message or memdump, then
                 // send the next byte.
-                if (uart_tx_ready && uart_tx_data_valid) begin
+                if (uart_tx_ready && uart_tx_data_valid && !btn[2]) begin
                     inc_done_msg_bytes_sent = 1;
                     // Done message and cycle count
                     if (done_msg_bytes_sent < 17) begin
@@ -253,31 +257,7 @@ module top(input wire clk_25mhz,
                         decrement_bit_offset = 1;
                     end else if (done_msg_bytes_sent < 35) begin
                         uart_tx_data = done_msg_suffix_chars[done_msg_bytes_sent - 33];
-                    end else begin
-                        memdump_next_state = STATE_DONE;
-                        next_state = STATE_MEMDUMP;
-                    end
-                end else if (btn[2]) begin
-                    set_uart_tx_data_valid = 1;
-                    next_state = STATE_MEMDUMP;
-                end
-            end
-            STATE_ERRS: begin
-                o_led[0] = 1;
-                // Set additional LEDs to error flags.
-                o_led[4] = errs[0];
-                o_led[5] = errs[1];
-                o_led[6] = errs[2];
-                o_led[7] = errs[3];
-
-                if (btn[2]) begin
-                    set_uart_tx_data_valid = 1;
-                    next_state = STATE_MEMDUMP;
-                end
-            end
-            STATE_MEMDUMP: begin
-                if (uart_tx_ready && uart_tx_data_valid) begin
-                    if (memdump_byte_offset < MEM_BYTES || (memdump_byte_offset == MEM_BYTES && (memdump_line_offset != 0))) begin
+                    end else if (memdump_byte_offset < MEM_BYTES || (memdump_byte_offset == MEM_BYTES && (memdump_line_offset != 0))) begin
                         inc_memdump_line_offset = 1;
                         if (memdump_line_offset < 4) begin
                             // Print a byte of the address.
@@ -306,9 +286,16 @@ module top(input wire clk_25mhz,
                             clr_memdump_line_offset = 1;
                         end
                     end else begin
-                        next_state = memdump_next_state;
                         clr_uart_tx_data_valid = 1;
                     end
+                end
+
+                // Restart memdump on button press.
+                if (btn[2]) begin
+                    clr_memdump_byte_offset = 1;
+                    clr_memdump_line_offset = 1;
+                    set_uart_tx_data_valid = 1;
+                    clr_uart_tx_data_valid = 0;
                 end
             end
         endcase
@@ -340,20 +327,32 @@ module top(input wire clk_25mhz,
             memdump_byte_offset <= 0;
             memdump_line_offset <= 0;
             cpu_mem_data_valid <= 0;
-        end else if (errs) begin
-            state <= STATE_ERRS;
         end else begin
-            state <= next_state;
-            if (next_state == STATE_MEMDUMP) begin
-                memdump_next_state <= next_state;
+            if (errs) begin
+                state <= STATE_DONE;
+            end else begin
+                state <= next_state;
+                if (inc_cycle_count) begin
+                    cycle_count <= cycle_count + 1;
+                end
+                if (load_mem_byte) begin
+                    mem[loaded_bytes] <= uart_rx_data;
+                    loaded_bytes <= loaded_bytes + 1;
+                end
+                if (cpu_writeback) begin
+                    mem[cpu_mem_raddr + 0] <= cpu_mem_wdata[ 7: 0];
+                    mem[cpu_mem_raddr + 1] <= cpu_mem_wdata[15: 8];
+                    mem[cpu_mem_raddr + 2] <= cpu_mem_wdata[23:16];
+                    mem[cpu_mem_raddr + 3] <= cpu_mem_wdata[31:24];
+                end
+                if (i_rst || clr_cpu_mem_rdata_valid) begin
+                    cpu_mem_data_valid <= 0;
+                end else if (set_cpu_mem_rdata_valid) begin
+                    cpu_mem_data_valid <= 1;
+                end
             end
-            if (inc_cycle_count) begin
-                cycle_count <= cycle_count + 1;
-            end
-            if (load_mem_byte) begin
-                mem[loaded_bytes] <= uart_rx_data;
-                loaded_bytes <= loaded_bytes + 1;
-            end
+
+            // Printing logic happens regardless of errors.
             if (decrement_bit_offset) begin
                 cycle_count_bit_offset <= cycle_count_bit_offset - 4;
             end
@@ -362,32 +361,21 @@ module top(input wire clk_25mhz,
             end else if (inc_done_msg_bytes_sent) begin
                 done_msg_bytes_sent <= done_msg_bytes_sent + 1;
             end
-            if (inc_memdump_byte_offset) begin
-                memdump_byte_offset <= memdump_byte_offset + 1;
-            end
-            if (cpu_writeback) begin
-                mem[cpu_mem_raddr + 0] <= cpu_mem_wdata[ 7: 0];
-                mem[cpu_mem_raddr + 1] <= cpu_mem_wdata[15: 8];
-                mem[cpu_mem_raddr + 2] <= cpu_mem_wdata[23:16];
-                mem[cpu_mem_raddr + 3] <= cpu_mem_wdata[31:24];
-            end
             // Give reset and clear precedence over set.
             if (i_rst || clr_uart_tx_data_valid) begin
                 uart_tx_data_valid <= 0;
             end else if (set_uart_tx_data_valid) begin
                 uart_tx_data_valid <= 1;
             end
-            if (i_rst || clr_cpu_mem_rdata_valid) begin
-                cpu_mem_data_valid <= 0;
-            end else if (set_cpu_mem_rdata_valid) begin
-                cpu_mem_data_valid <= 1;
-            end
-            // Clearing the memdump line offset takes precedence over
-            // incrementing it.
-            if (clr_memdump_line_offset) begin
+            if (i_rst || clr_memdump_line_offset) begin
                 memdump_line_offset <= 0;
             end else if (inc_memdump_line_offset) begin
                 memdump_line_offset <= memdump_line_offset + 1;
+            end
+            if (i_rst || clr_memdump_byte_offset) begin
+                memdump_byte_offset <= 0;
+            end if (inc_memdump_byte_offset) begin
+                memdump_byte_offset <= memdump_byte_offset + 1;
             end
         end
 
