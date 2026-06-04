@@ -571,7 +571,7 @@ module cpu(input wire i_clk,
                 if (i_mem_rdata_valid) begin
                     instr = i_mem_rdata;
                     clr_mem_rdata_ready = 1;
-                    next_state = STATE_DCODE;
+                    next_state = STATE_DONE; // STATE_DCODE;
                 end
             end
 
