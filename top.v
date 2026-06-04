@@ -737,8 +737,7 @@ module cpu(input wire i_clk,
 
             STATE_DCODE: begin
                 next_state = STATE_EXEC;
-                // Case split on opcode
-                case (insn[6:0])
+                case (opcode)
 
                     // Register-register arithmetic.
                     7'b0110011: begin
@@ -836,7 +835,7 @@ module cpu(input wire i_clk,
 
             // Write additional info to the error code.
             if (err_invalid_opcode) begin
-                errcode[14:8] <= insn[6:0];
+                errcode[14:8] <= opcode;
             end else if (err_invalid_reg) begin
                 errcode[31:8] <= ~0;
             end
