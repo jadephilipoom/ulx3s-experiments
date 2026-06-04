@@ -196,6 +196,8 @@ module top(input wire clk_25mhz,
                 // something to print from the "done" message or memdump, then
                 // send the next byte.
                 if (uart_tx_ready && uart_tx_data_valid) begin
+                    inc_bytes_sent = 1;
+                    // Done message and cycle count
                     if (done_msg_bytes_sent < 17) begin
                         uart_tx_data = done_msg_prefix_chars[done_msg_bytes_sent];
                     end else if (done_msg_bytes_sent < 33) begin
@@ -203,7 +205,9 @@ module top(input wire clk_25mhz,
                         decrement_bit_offset = 1;
                     end else if (done_msg_bytes_sent < 35) begin
                         uart_tx_data = done_msg_suffix_chars[done_msg_bytes_sent - 33];
+                    // Memdump
                     end else if (memdump_byte_offset < MEM_BYTES || (memdump_byte_offset == MEM_BYTES && (memdump_line_offset != 0))) begin
+                        inc_bytes_sent = 0;
                         inc_memdump_line_offset = 1;
                         if (memdump_line_offset < 4) begin
                             // Print a byte of the address.
@@ -226,7 +230,6 @@ module top(input wire clk_25mhz,
                     end else begin
                         clr_uart_tx_data_valid = 1;
                     end
-                    inc_bytes_sent = 1;
                 end
             end
             STATE_ERRS: begin
@@ -323,10 +326,11 @@ module uart_rx(input wire i_clk,
 
     reg [7:0] recv_data;
     reg [3:0] recv_bits;
-    reg [31:0] hold_count; // Measures how long the current bit has been held
+    reg [31:0] delay_count; // Cycles to wait before next bit
 
     // Baud rate 115200, clock 25MHz
     localparam HOLD_CYCLES = 25000000 / 115200;
+    localparam DELAY_CYCLES = HOLD_CYCLES / 2; // Read from the middle
 
     assign o_data = recv_data;
 
@@ -344,13 +348,13 @@ module uart_rx(input wire i_clk,
                     if (!i_rx) begin
                         recv_data <= 0;
                         recv_bits <= 0;
-                        hold_count <= 0;
+                        delay_count <= HOLD_CYCLES + DELAY_CYCLES;
                         state <= STATE_READ;
                     end
                 end
 
                 STATE_READ: begin
-                    if (hold_count == HOLD_CYCLES) begin
+                    if (delay_count == 0) begin
                         if (recv_bits == 8) begin
                             state <= STATE_WAIT;
                             o_data_valid <= 1;
@@ -359,11 +363,11 @@ module uart_rx(input wire i_clk,
                         end else begin
                             recv_data <= { i_rx, recv_data[7:1] };
                             recv_bits <= recv_bits + 1;
-                            hold_count <= 0;
+                            delay_count <= HOLD_CYCLES;
                         end
                     end
                     else begin
-                        hold_count <= hold_count + 1;
+                        delay_count <= delay_count - 1;
                     end
                 end
 
@@ -382,9 +386,10 @@ module uart_tx(input wire i_clk,
                output wire o_ready,
                output reg o_err);
 
-    localparam STATE_WAIT = 1'd0;
-    localparam STATE_SEND = 1'd1;
-    reg state = STATE_WAIT;
+    localparam STATE_WAIT = 2'd0;
+    localparam STATE_SEND = 2'd1;
+    localparam STATE_SPACE = 2'd2;
+    reg [1:0] state = STATE_WAIT;
 
     reg [9:0] send_data = ~0;
     reg [3:0] send_bits;
@@ -392,6 +397,10 @@ module uart_tx(input wire i_clk,
 
     // Baud rate 115200, clock 25MHz
     localparam HOLD_CYCLES = 25000000 / 115200;
+
+    // Cycles to idle high in between bytes (helps avoid timing getting out of
+    // sync).
+    localparam SPACE_CYCLES = HOLD_CYCLES / 2;
 
     assign o_tx = send_data[0];
     assign o_ready = state == STATE_WAIT;
@@ -419,7 +428,9 @@ module uart_tx(input wire i_clk,
                 STATE_SEND: begin
                     if (send_hold == 0) begin
                         if (send_bits == 0) begin
-                            state <= STATE_WAIT;
+                            send_data <= ~0;
+                            state <= STATE_SPACE;
+                            send_hold <= SPACE_CYCLES;
                         end else begin
                             send_data <= { 1'b1, send_data[9:1] };
                             send_bits <= send_bits - 1;
@@ -427,6 +438,14 @@ module uart_tx(input wire i_clk,
                         end
                     end
                     else begin
+                        send_hold <= send_hold - 1;
+                    end
+                end
+
+                STATE_SPACE: begin
+                    if (send_hold == 0) begin
+                        state <= STATE_WAIT;
+                    end else begin
                         send_hold <= send_hold - 1;
                     end
                 end
