@@ -648,7 +648,7 @@ module cpu(input wire i_clk,
 
     reg [31:0] pc;
     reg [31:0] insn;
-    reg [31:0] rf [0:15];
+    reg [31:0] rf [0:31];
     reg inc_pc;
     reg read_insn;
 
@@ -665,6 +665,47 @@ module cpu(input wire i_clk,
     reg [31:0] mem_waddr;
     reg [31:0] mem_wdata;
     reg mem_wdata_valid;
+    reg mem_addr_offset;
+    reg [5:0] mem_addr_base_reg;
+    reg [31:0] mem_addr_base;
+
+    // Operands and destination register index.
+    reg [31:0] op1;
+    reg [31:0] op2;
+    reg [5:0] dest_reg;
+
+    // Alias different regions of the instruction for convenience.
+    wire [6:0] opcode;
+    wire [2:0] funct3;
+    wire [6:0] funct7;
+    wire [5:0] rs1;
+    wire [5:0] rs2;
+    wire [5:0] rd;
+    wire [11:0] Iimm;
+    wire [11:0] Simm;
+    wire [12:0] Bimm;
+    wire [31:0] Uimm;
+    wire [20:0] Jimm;
+    assign opcode      = insn[ 6: 0];
+    assign funct3      = insn[14:12];
+    assign funct7      = insn[31:25];
+    assign rs1         = insn[19:15];
+    assign rs2         = insn[24:20];
+    assign rd          = insn[11: 7];
+    assign Iimm        = insn[31:20];
+    assign Simm[11: 5] = insn[31:25];
+    assign Simm[ 3: 0] = insn[11: 7];
+    assign Bimm[12]    = insn[31];
+    assign Bimm[11]    = insn[ 7];
+    assign Bimm[10: 5] = insn[30:25];
+    assign Bimm[ 4: 1] = insn[11:8];
+    assign Bimm[0]     = 0;
+    assign Uimm[31:12] = insn[31:12];
+    assign Uimm[11: 0] = 0;
+    assign Jimm[20]    = insn[31];
+    assign Jimm[19:12] = insn[19:12];
+    assign Jimm[11]    = insn[20];
+    assign Jimm[10:1]  = insn[30:21];
 
     assign o_done = (state == STATE_DONE);
     assign o_errs = errcode;
@@ -699,22 +740,34 @@ module cpu(input wire i_clk,
                 // Case split on opcode
                 case (insn[6:0])
 
-                    // ADD
+                    // Register-register arithmetic.
                     7'b0110011: begin
-                        // TODO
+                        case (insn[14:12])
+
+                            // ADD or SUB
+                            3'b000: begin
+                                // TODO
+                            end
+
+                            default: begin
+                                err_invalid_opcode = 1;
+                            end
+                        endcase
                     end
 
-                    // LW
+                    // Load instructions.
                     7'b0000011: begin
+                        mem_addr_offset = insn[31:20];
+                        mem_addr_base_reg = insn[19:15];
                         // TODO
                     end
 
-                    // SW
+                    // Store instructions.
                     7'b0100011: begin
                         // TODO
                     end
 
-                    // ECALL
+                    // System calls.
                     7'b1110011: begin
                         next_state = STATE_DONE;
                     end
@@ -760,6 +813,22 @@ module cpu(input wire i_clk,
             rf[13] <= 0;
             rf[14] <= 0;
             rf[15] <= 0;
+            rf[16] <= 0;
+            rf[17] <= 0;
+            rf[18] <= 0;
+            rf[19] <= 0;
+            rf[20] <= 0;
+            rf[21] <= 0;
+            rf[22] <= 0;
+            rf[23] <= 0;
+            rf[24] <= 0;
+            rf[25] <= 0;
+            rf[26] <= 0;
+            rf[27] <= 0;
+            rf[28] <= 0;
+            rf[29] <= 0;
+            rf[30] <= 0;
+            rf[31] <= 0;
         end else if (i_en) begin
             // Update error flags.
             errcode[ERRBIT_INVALID_OPCODE] <= errcode[ERRBIT_INVALID_OPCODE] || err_invalid_opcode;
