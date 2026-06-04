@@ -459,7 +459,7 @@ module uart_rx(input wire i_clk,
     localparam DELAY_CYCLES = HOLD_CYCLES / 2; // Read from the middle
 
     assign o_data = recv_data;
-    assign o_data_valid = (recv_bits == 8);
+    assign o_data_valid = (state == STATE_READ && recv_bits == 8 && delay_count == 0);
     assign o_err = err;
 
     always @(posedge i_clk) begin
