@@ -83,6 +83,7 @@ module top(input wire clk_25mhz,
     reg cpu_mem_rdata_valid;
     reg set_cpu_mem_rdata_valid;
     reg clr_cpu_mem_rdata_valid;
+    reg cpu_readmem;
     reg cpu_writeback;
     wire [31:0] cpu_mem_wdata;
     wire cpu_mem_wdata_valid;
@@ -176,6 +177,7 @@ module top(input wire clk_25mhz,
         inc_memdump_line_offset = 0;
         set_cpu_mem_rdata_valid = 0;
         clr_cpu_mem_rdata_valid = 0;
+        cpu_readmem = 0;
         cpu_writeback = 0;
         cycle_count_err = 0;
         mem_read_err = 0;
@@ -203,10 +205,7 @@ module top(input wire clk_25mhz,
                 // Send data from memory to CPU.
                 if (cpu_en && cpu_mem_rdata_ready) begin
                     if (cpu_mem_raddr < MEM_BYTES && (cpu_mem_raddr % 4 == 0)) begin
-                        cpu_mem_rdata[ 7: 0] = mem[cpu_mem_raddr];
-                        cpu_mem_rdata[15: 8] = mem[cpu_mem_raddr + 1];
-                        cpu_mem_rdata[23:16] = mem[cpu_mem_raddr + 2];
-                        cpu_mem_rdata[31:24] = mem[cpu_mem_raddr + 3];
+                        cpu_readmem = 1;
                         set_cpu_mem_rdata_valid = 1;
                     end else begin
                         mem_read_err = 1;
@@ -339,6 +338,12 @@ module top(input wire clk_25mhz,
                 if (load_mem_byte) begin
                     mem[loaded_bytes] <= uart_rx_data;
                     loaded_bytes <= loaded_bytes + 1;
+                end
+                if (cpu_readmem) begin
+                    cpu_mem_rdata[ 7: 0] <= mem[cpu_mem_raddr];
+                    cpu_mem_rdata[15: 8] <= mem[cpu_mem_raddr + 1];
+                    cpu_mem_rdata[23:16] <= mem[cpu_mem_raddr + 2];
+                    cpu_mem_rdata[31:24] <= mem[cpu_mem_raddr + 3];
                 end
                 if (cpu_writeback) begin
                     mem[cpu_mem_raddr + 0] <= cpu_mem_wdata[ 7: 0];
@@ -549,35 +554,49 @@ module cpu(input wire i_clk,
     reg [2:0] next_state;
 
     reg [31:0] pc;
-    reg [31:0] instr;
+    reg [31:0] insn;
     reg [31:0] rf [0:15];
+    reg inc_pc;
+    reg read_insn;
 
     localparam ERRBIT_INVALID_OPCODE = 32'd0;
+    reg err_invalid_opcode;
     reg [31:0] errs;
 
-    reg clr_mem_rdata_ready;
-    reg set_mem_rdata_ready;
+    reg [31:0] mem_raddr;
+    reg [31:0] mem_waddr;
+    reg [31:0] mem_wdata;
+    reg mem_wdata_valid;
+
+    assign o_done = (state == STATE_DONE);
+    assign o_errs = errs;
+    assign o_mem_raddr = (state == STATE_FETCH) ? pc : mem_raddr;
+    assign o_mem_waddr = mem_waddr;
+    assign o_mem_rdata_ready = (state == STATE_FETCH);
+    assign o_mem_wdata = mem_wdata;
+    assign o_mem_wdata_valid = mem_wdata_valid;
 
     always @(*) begin
         next_state = state;
-        clr_mem_rdata_ready = 0;
-        set_mem_rdata_ready = 0;
-        o_mem_raddr = 0;
-        o_mem_waddr = 0;
         err_invalid_opcode = 0;
+        mem_raddr = 0;
+        mem_waddr = 0;
+        mem_wdata = 0;
+        mem_wdata_valid = 0;
+        read_insn = 0;
+        inc_pc = 0;
         case (state)
             
             STATE_FETCH: begin
                 if (i_mem_rdata_valid) begin
-                    instr = i_mem_rdata;
-                    clr_mem_rdata_ready = 1;
+                    read_insn = 1;
                     next_state = STATE_DONE; // STATE_DCODE;
                 end
             end
 
             STATE_DCODE: begin
                 // Case split on opcode
-                case (instr[6:0])
+                case (insn[6:0])
 
                     // ADD
                     7'b011001: begin
@@ -608,8 +627,7 @@ module cpu(input wire i_clk,
 
             STATE_EXEC: begin
                 // TODO
-                o_mem_raddr = pc;
-                set_mem_rdata_ready = 1;
+                inc_pc = 1;
                 next_state = STATE_FETCH;
             end
 
@@ -621,14 +639,11 @@ module cpu(input wire i_clk,
     always @(posedge i_clk) begin
         if (i_rst) begin
             state <= STATE_FETCH;
-            cycle_count <= 0;
-            o_done <= 0;
-            o_errs <= 0;
             errs <= 0;
-            instr <= 0; 
             pc <= 0; 
-            o_mem_raddr <= 0;
-            o_mem_rdata_ready <= 1;
+            mem_raddr <= 0;
+            mem_waddr <= 0;
+            mem_wdata_valid <= 0;
             rf[0] <= 0;
             rf[1] <= 0;
             rf[2] <= 0;
@@ -652,12 +667,11 @@ module cpu(input wire i_clk,
             end else begin
                 state <= next_state;
             end
-            o_done <= (state == STATE_DONE);
-            o_errs <= errs;
-            if (clr_mem_rdata_ready) begin
-                o_mem_rdata_ready <= 0;
-            end else if (set_mem_rdata_ready) begin
-                o_mem_rdata_ready <= 1;
+            if (read_insn) begin
+                insn <= i_mem_rdata;
+            end
+            if (inc_pc) begin
+                pc <= pc + 4;
             end
         end
     end
