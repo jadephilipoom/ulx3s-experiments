@@ -442,8 +442,8 @@ module uart_rx(input wire i_clk,
                input wire i_rst,
                input wire i_rx,
                output [7:0] o_data,
-               output reg o_data_valid,
-               output reg o_err);
+               output wire o_data_valid,
+               output wire o_err);
 
     localparam STATE_WAIT = 2'd0; // Waiting for start bit.
     localparam STATE_READ = 2'd1; // Reading data.
@@ -452,23 +452,27 @@ module uart_rx(input wire i_clk,
     reg [7:0] recv_data;
     reg [3:0] recv_bits;
     reg [31:0] delay_count; // Cycles to wait before next bit
+    reg err;
 
     // Baud rate 115200, clock 25MHz
     localparam HOLD_CYCLES = 25000000 / 115200;
     localparam DELAY_CYCLES = HOLD_CYCLES / 2; // Read from the middle
 
     assign o_data = recv_data;
+    assign o_data_valid = (recv_bits == 8);
+    assign o_err = err;
 
     always @(posedge i_clk) begin
         if (i_rst) begin
             state <= STATE_WAIT;
-            o_data_valid <= 0;
-            o_err <= 0;
+            recv_data <= 0;
+            recv_bits <= 0;
+            delay_count <= 0;
+            err <= 0;
         end else if (i_en) begin
             case (state)
 
                 STATE_WAIT: begin
-                    o_data_valid <= 0;
                     // If we hear a 0, transition to the read state.
                     if (!i_rx) begin
                         recv_data <= 0;
@@ -482,9 +486,8 @@ module uart_rx(input wire i_clk,
                     if (delay_count == 0) begin
                         if (recv_bits == 8) begin
                             state <= STATE_WAIT;
-                            o_data_valid <= 1;
                             // Report an error if the stop bit is not high as expected.
-                            o_err <= !i_rx;
+                            err <= !i_rx;
                         end else begin
                             recv_data <= { i_rx, recv_data[7:1] };
                             recv_bits <= recv_bits + 1;
@@ -626,7 +629,7 @@ module cpu(input wire i_clk,
 
     always @(*) begin
         next_state = state;
-        err_invalid_opcode = 1;
+        err_invalid_opcode = 0;
         mem_raddr = 0;
         mem_waddr = 0;
         mem_wdata = 0;
