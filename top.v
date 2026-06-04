@@ -760,14 +760,16 @@ module cpu(input wire i_clk,
             rf[14] <= 0;
             rf[15] <= 0;
         end else if (i_en) begin
+            // Update error flags.
             errcode[ERRBIT_INVALID_OPCODE] <= errcode[ERRBIT_INVALID_OPCODE] || err_invalid_opcode;
+
+            // Write additional info to the error code.
+            if (err_invalid_opcode) begin
+                errcode[14:8] <= insn[6:0];
+            end
+
             if (errcode != 0) begin
                 state <= STATE_DONE;
-
-                // Write additional info to the error code.
-                if (err_invalid_opcode) begin
-                    errcode[14:8] <= 6'b111111; //insn[6:0];
-                end
             end else begin
                 state <= next_state;
                 if (read_insn) begin
