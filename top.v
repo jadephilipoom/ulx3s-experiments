@@ -699,11 +699,6 @@ module cpu(input wire i_clk,
                 // Case split on opcode
                 case (insn[6:0])
 
-                    // TODO: debugging
-                    7'b0000000: begin
-                        err_invalid_reg = 1;
-                    end
-
                     // ADD
                     7'b0110011: begin
                         // TODO
