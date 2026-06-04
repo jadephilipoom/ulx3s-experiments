@@ -667,6 +667,7 @@ module cpu(input wire i_clk,
     reg [31:0] mem_addr_offset;
     reg [ 5:0] mem_addr_base_reg;
     reg [31:0] mem_addr_base;
+    reg mem_rdata_ready;
     reg mem_wdata_valid;
 
     // Alias different regions of the instruction for convenience.
@@ -734,7 +735,7 @@ module cpu(input wire i_clk,
     assign o_pc = pc;
     assign o_mem_raddr = (state == STATE_FETCH) ? pc : mem_raddr;
     assign o_mem_waddr = mem_waddr;
-    assign o_mem_rdata_ready = (state == STATE_FETCH || load_mem);
+    assign o_mem_rdata_ready = mem_rdata_ready;
     assign o_mem_wdata = mem_wdata;
     assign o_mem_wdata_valid = mem_wdata_valid;
 
@@ -835,6 +836,7 @@ module cpu(input wire i_clk,
             errcode <= 0;
             pc <= 0; 
             mem_raddr <= 0;
+            mem_rdata_ready <= 0;
             mem_waddr <= 0;
             mem_wdata <= 0;
             mem_wdata_valid <= 0;
@@ -878,6 +880,7 @@ module cpu(input wire i_clk,
 
             // Write additional info to the error code.
             if (err_invalid_opcode) begin
+                errcode[31:16] <= mem_raddr[15:0]; // TODO: debugging, removeme
                 errcode[14:8] <= opcode;
             end else if (err_invalid_reg) begin
                 errcode[31:8] <= ~0;
@@ -892,9 +895,15 @@ module cpu(input wire i_clk,
                 end
                 if (load_mem) begin
                     mem_raddr <= mem_addr_offset + rf[mem_addr_base_reg];
+                    mem_rdata_ready <= 1;
+                end else if (next_state == STATE_FETCH) begin
+                    mem_rdata_ready <= 1; 
+                end else begin
+                    mem_rdata_ready <= 0;
                 end
                 if (store_mem) begin
                     mem_waddr <= mem_addr_offset + rf[mem_addr_base_reg];
+                    result <= rf[rs2];
                 end
                 if (do_arith) begin
                     case (arith_code)
@@ -911,6 +920,7 @@ module cpu(input wire i_clk,
                         end
                     endcase
                 end
+                mem_wdata_valid <= do_writeback && (writeback_dest == WRITEBACK_STORE);
                 if (do_writeback) begin
                     case (writeback_dest)
                         WRITEBACK_REG: begin
@@ -921,7 +931,6 @@ module cpu(input wire i_clk,
                         end
                         WRITEBACK_STORE: begin
                             mem_wdata <= result;
-                            mem_wdata_valid <= 1;
                         end
                         WRITEBACK_PC: begin
                             pc <= result;
