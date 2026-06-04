@@ -639,10 +639,10 @@ module cpu(input wire i_clk,
            output [31:0] o_errs,
            output o_done);
 
-    localparam STATE_FETCH = 3'd0;
-    localparam STATE_DCODE = 3'd1;
-    localparam STATE_EXEC = 3'd2;
-    localparam STATE_DONE = 3'd3;
+    localparam STATE_FETCH = 3'd0; // Get the next instruction from memory.
+    localparam STATE_DCEXE = 3'd1; // Combined decode-excute.
+    localparam STATE_WBACK = 3'd2; // Write back results.
+    localparam STATE_DONE  = 3'd3; // Finished program (terminal state).
     reg [2:0] state = STATE_FETCH;
     reg [2:0] next_state;
 
@@ -664,10 +664,10 @@ module cpu(input wire i_clk,
     reg [31:0] mem_raddr;
     reg [31:0] mem_waddr;
     reg [31:0] mem_wdata;
-    reg mem_wdata_valid;
-    reg mem_addr_offset;
-    reg [5:0] mem_addr_base_reg;
+    reg [31:0] mem_addr_offset;
+    reg [ 5:0] mem_addr_base_reg;
     reg [31:0] mem_addr_base;
+    reg mem_wdata_valid;
 
     // Alias different regions of the instruction for convenience.
     wire [6:0] opcode;
@@ -705,9 +705,16 @@ module cpu(input wire i_clk,
     // Operand and destination information.
     reg [31:0] op1;
     reg [31:0] op2;
-    reg [5:0] dest_reg;
-    reg is_load;
-    reg is_store;
+    reg [31:0] result;
+    reg load_mem;
+    reg store_mem;
+
+    localparam WRITEBACK_LOAD  = 3'd0;
+    localparam WRITEBACK_STORE = 3'd2;
+    localparam WRITEBACK_REG   = 3'd3;
+    localparam WRITEBACK_PC    = 3'd4;
+    reg [2:0] writeback_dest;
+    reg do_writeback;
 
     // Operation information.
     localparam ARITH_CODE_ADD  = 3'b000; // sub if sign set
@@ -720,31 +727,32 @@ module cpu(input wire i_clk,
     localparam ARITH_CODE_AND  = 3'b111;
     reg [2:0] arith_code;
     reg arith_sign; // used for sub and arithmetic shift
+    reg do_arith;
 
     assign o_done = (state == STATE_DONE);
     assign o_errs = errcode;
     assign o_pc = pc;
     assign o_mem_raddr = (state == STATE_FETCH) ? pc : mem_raddr;
     assign o_mem_waddr = mem_waddr;
-    assign o_mem_rdata_ready = (state == STATE_FETCH);
+    assign o_mem_rdata_ready = (state == STATE_FETCH || load_mem);
     assign o_mem_wdata = mem_wdata;
     assign o_mem_wdata_valid = mem_wdata_valid;
 
     always @(*) begin
         next_state = state;
-        mem_raddr = 0;
-        mem_waddr = 0;
-        mem_wdata = 0;
-        mem_wdata_valid = 0;
         read_insn = 0;
         inc_pc = 0;
-        read_rs1 = 0;
-        read_rs2 = 0;
-        dest_reg = 0;
-        is_load = 0;
-        is_store = 0;
+        op1 = 0;
+        op2 = 0;
+        load_mem = 0;
+        store_mem = 0;
+        mem_addr_offset = 0;
+        mem_addr_base_reg = 0;
+        do_arith = 0;
         arith_code = 0;
         arith_sign = 0;
+        do_writeback = 0;
+        writeback_dest = WRITEBACK_REG;
         err_invalid_opcode = 0;
         err_invalid_reg = 0;
         case (state)
@@ -752,28 +760,28 @@ module cpu(input wire i_clk,
             STATE_FETCH: begin
                 if (i_mem_rdata_valid) begin
                     read_insn = 1;
-                    next_state = STATE_DCODE;
+                    next_state = STATE_DCEXE;
                 end
             end
 
-            STATE_DCODE: begin
-                next_state = STATE_EXEC;
+            STATE_DCEXE: begin
+                next_state = STATE_WBACK;
                 case (opcode)
 
                     // Register-register arithmetic.
                     7'b0110011: begin
-                        read_rs1 = 1;
-                        read_rs2 = 1;
-                        dest_reg = rd;
+                        op1 = rf[rs1];
+                        op2 = rf[rs2];
                         arith_code = funct3;
                         arith_sign = insn[30];
+                        do_arith = 1;
                     end
 
                     // Load instructions.
                     7'b0000011: begin
-                        mem_addr_offset = insn[31:20];
-                        mem_addr_base_reg = insn[19:15];
-                        // TODO
+                        load_mem = 1;
+                        mem_addr_offset = Iimm;
+                        mem_addr_base_reg = rs1;
                     end
 
                     // Store instructions.
@@ -792,10 +800,28 @@ module cpu(input wire i_clk,
                 endcase
             end
 
-            STATE_EXEC: begin
-                // TODO
+            STATE_WBACK: begin
                 inc_pc = 1;
                 next_state = STATE_FETCH;
+                do_writeback = (rd != 0); // Skip register writeback for x0
+                case (opcode)
+                    // Load instructions.
+                    7'b0000011: begin
+                        writeback_dest = WRITEBACK_LOAD;
+                        if (i_mem_rdata_valid) begin
+                            do_writeback = 1;
+                        end else begin
+                            // Stall to wait for data from memory.
+                            do_writeback = 0;
+                            next_state = STATE_WBACK;
+                        end
+                    end
+                    // Store instructions.
+                    7'b0100011: begin
+                        writeback_dest = WRITEBACK_STORE;
+                        do_writeback = 1;
+                    end
+                endcase
             end
 
             STATE_DONE: begin
@@ -810,9 +836,9 @@ module cpu(input wire i_clk,
             pc <= 0; 
             mem_raddr <= 0;
             mem_waddr <= 0;
+            mem_wdata <= 0;
             mem_wdata_valid <= 0;
-            op1 <= 0;
-            op2 <= 0;
+            result <= 0;
             rf[0] <= 0;
             rf[1] <= 0;
             rf[2] <= 0;
@@ -864,14 +890,43 @@ module cpu(input wire i_clk,
                 if (read_insn) begin
                     insn <= i_mem_rdata;
                 end
-                if (inc_pc) begin
-                    pc <= pc + 4;
+                if (load_mem) begin
+                    mem_raddr <= mem_addr_offset + rf[mem_addr_base_reg];
                 end
-                if (read_rs1) begin
-                    op1 <= rs1;
+                if (store_mem) begin
+                    mem_waddr <= mem_addr_offset + rf[mem_addr_base_reg];
                 end
-                if (read_rs2) begin
-                    op2 <= rs2;
+                if (do_arith) begin
+                    case (arith_code)
+                        ARITH_CODE_ADD: begin
+                            if (arith_sign) begin
+                                result <= op1 - op2;
+                            end else begin
+                                result <= op1 + op2;
+                            end
+                        end
+                        // TODO: other cases
+                        default: begin
+                            result <= 0;
+                        end
+                    endcase
+                end
+                if (do_writeback) begin
+                    case (writeback_dest)
+                        WRITEBACK_REG: begin
+                            rf[rd] <= result;
+                        end
+                        WRITEBACK_LOAD: begin
+                            rf[rd] <= i_mem_rdata;
+                        end
+                        WRITEBACK_STORE: begin
+                            mem_wdata <= result;
+                            mem_wdata_valid <= 1;
+                        end
+                        WRITEBACK_PC: begin
+                            pc <= result;
+                        end
+                    endcase
                 end
             end
         end
