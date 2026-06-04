@@ -189,9 +189,6 @@ module top(input wire clk_25mhz,
             end
             STATE_DONE: begin
                 o_led[2] = 1;
-                o_led[5] = uart_tx_ready;
-                o_led[6] = uart_tx_data_valid;
-                o_led[7] = (memdump_byte_offset < MEM_BYTES);
                 // If the UART transmitter is ready and there is still
                 // something to print from the "done" message or memdump, then
                 // send the next byte.
@@ -214,16 +211,20 @@ module top(input wire clk_25mhz,
                             uart_tx_data = ascii_hex_nibble(memdump_byte_offset[(12 - memdump_line_offset*4) +: 4]);
                         end else if (memdump_line_offset == 4) begin
                             uart_tx_data = 8'h20; // ' '
-                        end else if (memdump_line_offset < 13) begin
+                        end else if (memdump_line_offset == 5) begin
+                            uart_tx_data = 8'h7c; // '|'
+                        end else if (memdump_line_offset == 6) begin
+                            uart_tx_data = 8'h20; // ' '
+                        end else if (memdump_line_offset < 15) begin
                             if (memdump_line_offset & 1'd1) begin
                                 uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset][7:4]);
                             end else begin
                                 uart_tx_data = ascii_hex_nibble(mem[memdump_byte_offset][3:0]);
                                 inc_memdump_byte_offset = 1;
                             end
-                        end else if (memdump_line_offset == 13) begin
+                        end else if (memdump_line_offset == 15) begin
                             uart_tx_data = 8'h0d; // '\r'
-                        end else if (memdump_line_offset == 14) begin
+                        end else if (memdump_line_offset == 16) begin
                             uart_tx_data = 8'h0a; // '\n'
                             clr_memdump_line_offset = 1;
                         end else begin
