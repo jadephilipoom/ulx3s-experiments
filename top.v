@@ -654,9 +654,12 @@ module cpu(input wire i_clk,
     reg inc_pc;
     reg read_insn;
 
+    // Error code format:
+    // - bits [7:0] hold the error flags
+    // - bits [31:8] hold additional info (e.g. the opcode that was invalid)
     localparam ERRBIT_INVALID_OPCODE = 32'd0;
     reg err_invalid_opcode;
-    reg [31:0] errs;
+    reg [31:0] errcode;
 
     reg [31:0] mem_raddr;
     reg [31:0] mem_waddr;
@@ -664,7 +667,7 @@ module cpu(input wire i_clk,
     reg mem_wdata_valid;
 
     assign o_done = (state == STATE_DONE);
-    assign o_errs = errs;
+    assign o_errs = errcode;
     assign o_pc = pc;
     assign o_mem_raddr = (state == STATE_FETCH) ? pc : mem_raddr;
     assign o_mem_waddr = mem_waddr;
@@ -695,7 +698,7 @@ module cpu(input wire i_clk,
                 case (insn[6:0])
 
                     // ADD
-                    7'b011001: begin
+                    7'b0110011: begin
                         // TODO
                     end
 
@@ -735,7 +738,7 @@ module cpu(input wire i_clk,
     always @(posedge i_clk) begin
         if (i_rst) begin
             state <= STATE_FETCH;
-            errs <= 0;
+            errcode <= 0;
             pc <= 0; 
             mem_raddr <= 0;
             mem_waddr <= 0;
@@ -757,17 +760,22 @@ module cpu(input wire i_clk,
             rf[14] <= 0;
             rf[15] <= 0;
         end else if (i_en) begin
-            errs[ERRBIT_INVALID_OPCODE] <= errs[ERRBIT_INVALID_OPCODE] || err_invalid_opcode;
-            if (errs == 0) begin
-                state <= next_state;
-            end else begin
+            errcode[ERRBIT_INVALID_OPCODE] <= errcode[ERRBIT_INVALID_OPCODE] || err_invalid_opcode;
+            if (errcode != 0) begin
                 state <= STATE_DONE;
-            end
-            if (read_insn) begin
-                insn <= i_mem_rdata;
-            end
-            if (inc_pc) begin
-                pc <= pc + 4;
+
+                // Write additional info to the error code.
+                if (err_invalid_opcode) begin
+                    errcode[14:8] <= 6'b111111; //insn[6:0];
+                end
+            end else begin
+                state <= next_state;
+                if (read_insn) begin
+                    insn <= i_mem_rdata;
+                end
+                if (inc_pc) begin
+                    pc <= pc + 4;
+                end
             end
         end
     end
