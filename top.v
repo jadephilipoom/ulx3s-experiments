@@ -669,11 +669,6 @@ module cpu(input wire i_clk,
     reg [5:0] mem_addr_base_reg;
     reg [31:0] mem_addr_base;
 
-    // Operands and destination register index.
-    reg [31:0] op1;
-    reg [31:0] op2;
-    reg [5:0] dest_reg;
-
     // Alias different regions of the instruction for convenience.
     wire [6:0] opcode;
     wire [2:0] funct3;
@@ -707,6 +702,25 @@ module cpu(input wire i_clk,
     assign Jimm[11]    = insn[20];
     assign Jimm[10:1]  = insn[30:21];
 
+    // Operand and destination information.
+    reg [31:0] op1;
+    reg [31:0] op2;
+    reg [5:0] dest_reg;
+    reg is_load;
+    reg is_store;
+
+    // Operation information.
+    localparam ARITH_CODE_ADD  = 3'b000; // sub if sign set
+    localparam ARITH_CODE_SLL  = 3'b001;
+    localparam ARITH_CODE_SLT  = 3'b010;
+    localparam ARITH_CODE_SLTU = 3'b011;
+    localparam ARITH_CODE_XOR  = 3'b100;
+    localparam ARITH_CODE_SRL  = 3'b101; // srla if sign set
+    localparam ARITH_CODE_OR   = 3'b110;
+    localparam ARITH_CODE_AND  = 3'b111;
+    reg [2:0] arith_code;
+    reg arith_sign; // used for sub and arithmetic shift
+
     assign o_done = (state == STATE_DONE);
     assign o_errs = errcode;
     assign o_pc = pc;
@@ -724,6 +738,13 @@ module cpu(input wire i_clk,
         mem_wdata_valid = 0;
         read_insn = 0;
         inc_pc = 0;
+        read_rs1 = 0;
+        read_rs2 = 0;
+        dest_reg = 0;
+        is_load = 0;
+        is_store = 0;
+        arith_code = 0;
+        arith_sign = 0;
         err_invalid_opcode = 0;
         err_invalid_reg = 0;
         case (state)
@@ -741,17 +762,11 @@ module cpu(input wire i_clk,
 
                     // Register-register arithmetic.
                     7'b0110011: begin
-                        case (insn[14:12])
-
-                            // ADD or SUB
-                            3'b000: begin
-                                // TODO
-                            end
-
-                            default: begin
-                                err_invalid_opcode = 1;
-                            end
-                        endcase
+                        read_rs1 = 1;
+                        read_rs2 = 1;
+                        dest_reg = rd;
+                        arith_code = funct3;
+                        arith_sign = insn[30];
                     end
 
                     // Load instructions.
@@ -796,6 +811,8 @@ module cpu(input wire i_clk,
             mem_raddr <= 0;
             mem_waddr <= 0;
             mem_wdata_valid <= 0;
+            op1 <= 0;
+            op2 <= 0;
             rf[0] <= 0;
             rf[1] <= 0;
             rf[2] <= 0;
@@ -849,6 +866,12 @@ module cpu(input wire i_clk,
                 end
                 if (inc_pc) begin
                     pc <= pc + 4;
+                end
+                if (read_rs1) begin
+                    op1 <= rs1;
+                end
+                if (read_rs2) begin
+                    op2 <= rs2;
                 end
             end
         end
