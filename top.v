@@ -757,7 +757,7 @@ module cpu(input wire i_clk,
         err_invalid_opcode = 0;
         err_invalid_reg = 0;
         case (state)
-            
+
             STATE_FETCH: begin
                 if (i_mem_rdata_valid) begin
                     read_insn = 1;
@@ -834,7 +834,7 @@ module cpu(input wire i_clk,
         if (i_rst) begin
             state <= STATE_FETCH;
             errcode <= 0;
-            pc <= 0; 
+            pc <= 0;
             mem_raddr <= 0;
             mem_rdata_ready <= 0;
             mem_waddr <= 0;
@@ -897,7 +897,7 @@ module cpu(input wire i_clk,
                     mem_raddr <= mem_addr_offset + rf[mem_addr_base_reg];
                     mem_rdata_ready <= 1;
                 end else if (next_state == STATE_FETCH) begin
-                    mem_rdata_ready <= 1; 
+                    mem_rdata_ready <= 1;
                 end else begin
                     mem_rdata_ready <= 0;
                 end
