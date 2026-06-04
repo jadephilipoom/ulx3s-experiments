@@ -18,19 +18,21 @@ module top(input wire clk_25mhz,
     assign led = o_led;
 
    // Set up basic state machine.
-    localparam STATE_INIT = 2'd0; // Initializing; program not yet loaded.
-    localparam STATE_EXEC = 2'd1; // Executing the program.
-    localparam STATE_DONE = 2'd2; // Program exited successfully (terminal state).
-    localparam STATE_ERRS = 2'd3; // Crashed due to failures (terminal state).
-    reg [1:0] state = STATE_INIT;
-    reg [1:0] next_state = STATE_INIT;
+    localparam STATE_INIT = 3'd0; // Initializing; program not yet loaded.
+    localparam STATE_EXEC = 3'd1; // Executing the program.
+    localparam STATE_DONE = 3'd2; // Program exited successfully (terminal state except for memdumps).
+    localparam STATE_ERRS = 3'd3; // Crashed due to failures (terminal state except for memdumps).
+    localparam STATE_MEMDUMP = 3'd4; // Dumping memory contents.
+    reg [2:0] state = STATE_INIT;
+    reg [2:0] next_state = STATE_INIT;
+    reg [2:0] memdump_next_state;
 
     // Error flags.
-    localparam ERRBIT_CNT = 0;  // Error from the cycle counter.
-    localparam ERRBIT_SER = 2;  // Error from the serial module.
-    localparam ERRBIT_CPU = 1;  // Error from the CPU module.
-    localparam ERRBIT_MEM = 3;  // Error from the memory module.
-    reg [3:0] errs = 0;
+    localparam ERRBIT_CNT = 2'd0;  // Error from the cycle counter.
+    localparam ERRBIT_SER = 2'd2;  // Error from the serial module.
+    localparam ERRBIT_CPU = 2'd1;  // Error from the CPU module.
+    localparam ERRBIT_MEM = 2'd3;  // Error from the memory module.
+    reg [1:0] errs = 0;
 
     assign uart_rx_en = (state == STATE_INIT);
     wire [7:0] uart_rx_data;
@@ -68,7 +70,7 @@ module top(input wire clk_25mhz,
     reg [63:0] cycle_count = 0;
     reg inc_cycle_count;
     reg cycle_count_err;
-    localparam MAX_CYCLE_COUNT = 64'hffffffffffffffff;
+    localparam MAX_CYCLE_COUNT = 64'h3ffffff; // 64'hffffffffffffffff;
 
     // Set up memory.
     reg [31:0] loaded_bytes;
@@ -114,8 +116,8 @@ module top(input wire clk_25mhz,
     reg [7:0] done_msg_suffix_chars [0:1];
     reg [6:0] cycle_count_bit_offset;
     reg decrement_bit_offset;
-    reg clear_bytes_sent;
-    reg inc_bytes_sent;
+    reg clr_done_msg_bytes_sent;
+    reg inc_done_msg_bytes_sent;
     initial begin
         done_msg_bytes_sent = 0;
         cycle_count_bit_offset = 6'd60;
@@ -165,8 +167,8 @@ module top(input wire clk_25mhz,
         o_led[7:0] = 0;
         decrement_bit_offset = 0;
         load_mem_byte = 0;
-        clear_bytes_sent = 0;
-        inc_bytes_sent = 0;
+        clr_done_msg_bytes_sent = 0;
+        inc_done_msg_bytes_sent = 0;
         set_uart_tx_data_valid = 0;
         clr_uart_tx_data_valid = 0;
         inc_cycle_count = 0;
@@ -233,7 +235,7 @@ module top(input wire clk_25mhz,
                     next_state = STATE_DONE;
                     uart_tx_data = done_msg_prefix_chars[0];
                     set_uart_tx_data_valid = 1;
-                    clear_bytes_sent = 1;
+                    clr_done_msg_bytes_sent = 1;
                 end
             end
             STATE_DONE: begin
@@ -242,7 +244,7 @@ module top(input wire clk_25mhz,
                 // something to print from the "done" message or memdump, then
                 // send the next byte.
                 if (uart_tx_ready && uart_tx_data_valid) begin
-                    inc_bytes_sent = 1;
+                    inc_done_msg_bytes_sent = 1;
                     // Done message and cycle count
                     if (done_msg_bytes_sent < 17) begin
                         uart_tx_data = done_msg_prefix_chars[done_msg_bytes_sent];
@@ -251,9 +253,31 @@ module top(input wire clk_25mhz,
                         decrement_bit_offset = 1;
                     end else if (done_msg_bytes_sent < 35) begin
                         uart_tx_data = done_msg_suffix_chars[done_msg_bytes_sent - 33];
-                    // Memdump
-                    end else if (memdump_byte_offset < MEM_BYTES || (memdump_byte_offset == MEM_BYTES && (memdump_line_offset != 0))) begin
-                        inc_bytes_sent = 0;
+                    end else begin
+                        memdump_next_state = STATE_DONE;
+                        next_state = STATE_MEMDUMP;
+                    end
+                end else if (btn[2]) begin
+                    set_uart_tx_data_valid = 1;
+                    next_state = STATE_MEMDUMP;
+                end
+            end
+            STATE_ERRS: begin
+                o_led[0] = 1;
+                // Set additional LEDs to error flags.
+                o_led[4] = errs[0];
+                o_led[5] = errs[1];
+                o_led[6] = errs[2];
+                o_led[7] = errs[3];
+
+                if (btn[2]) begin
+                    set_uart_tx_data_valid = 1;
+                    next_state = STATE_MEMDUMP;
+                end
+            end
+            STATE_MEMDUMP: begin
+                if (uart_tx_ready && uart_tx_data_valid) begin
+                    if (memdump_byte_offset < MEM_BYTES || (memdump_byte_offset == MEM_BYTES && (memdump_line_offset != 0))) begin
                         inc_memdump_line_offset = 1;
                         if (memdump_line_offset < 4) begin
                             // Print a byte of the address.
@@ -282,19 +306,10 @@ module top(input wire clk_25mhz,
                             clr_memdump_line_offset = 1;
                         end
                     end else begin
+                        next_state = memdump_next_state;
                         clr_uart_tx_data_valid = 1;
                     end
                 end
-            end
-            STATE_ERRS: begin
-                o_led[0] = 1;
-                // Set additional LEDs to error flags.
-                o_led[4] = errs[0];
-                o_led[5] = errs[1];
-                o_led[6] = errs[2];
-                o_led[7] = errs[3];
-
-                clr_uart_tx_data_valid = 1;
             end
         endcase
     end
@@ -329,6 +344,9 @@ module top(input wire clk_25mhz,
             state <= STATE_ERRS;
         end else begin
             state <= next_state;
+            if (next_state == STATE_MEMDUMP) begin
+                memdump_next_state <= next_state;
+            end
             if (inc_cycle_count) begin
                 cycle_count <= cycle_count + 1;
             end
@@ -339,9 +357,9 @@ module top(input wire clk_25mhz,
             if (decrement_bit_offset) begin
                 cycle_count_bit_offset <= cycle_count_bit_offset - 4;
             end
-            if (clear_bytes_sent) begin
+            if (clr_done_msg_bytes_sent) begin
                 done_msg_bytes_sent <= 0;
-            end else if (inc_bytes_sent) begin
+            end else if (inc_done_msg_bytes_sent) begin
                 done_msg_bytes_sent <= done_msg_bytes_sent + 1;
             end
             if (inc_memdump_byte_offset) begin
@@ -534,19 +552,82 @@ module cpu(input wire i_clk,
            output o_err,
            output o_done);
 
-    localparam STATE_FETCH = 2'd0;
-    localparam STATE_DCODE = 2'd1;
-    localparam STATE_EXECU = 2'd2;
-    reg [1:0] state = STATE_FETCH;
-    reg [1:0] next_state;
+    localparam STATE_FETCH = 3'd0;
+    localparam STATE_DCODE = 3'd1;
+    localparam STATE_EXEC = 3'd2;
+    localparam STATE_DONE = 3'd3;
+    reg [2:0] state = STATE_FETCH;
+    reg [2:0] next_state;
+    assign o_done = (state == STATE_DONE);
 
     reg [31:0] pc;
     reg [31:0] instr;
     reg [31:0] rf [0:15];
 
+    localparam ERRBIT_INVALID_OPCODE = 32'd0;
+    reg [31:0] errs;
+    assign o_err = (errs != 0);
+
+    reg clr_mem_rdata_ready;
+    reg set_mem_rdata_ready;
+
     always @(*) begin
-        o_err = 0;
-        o_done = 0;
+        next_state = state;
+        clr_mem_rdata_ready = 0;
+        set_mem_rdata_ready = 0;
+        mem_raddr = 0;
+        err_invalid_opcode = 0;
+        case (state)
+            
+            STATE_FETCH: begin
+                if (i_mem_rdata_valid) begin
+                    instr = i_mem_rdata;
+                    clr_mem_rdata_ready = 1;
+                    next_state = STATE_DCODE;
+                end
+            end
+
+            STATE_DCODE: begin
+                // Case split on opcode
+                case (instr[6:0])
+
+                    // ADD
+                    7'b011001: begin
+                        // TODO
+                    end
+
+                    // LW
+                    7'b0000011: begin
+                        // TODO
+                    end
+
+                    // SW
+                    7'b0100011: begin
+                        // TODO
+                    end
+
+                    // ECALL
+                    7'b1110011: begin
+                        next_state = STATE_DONE;
+                    end
+
+                    default: begin
+                        err_invalid_opcode = 1;
+                    end
+                endcase
+                next_state = STATE_EXEC;
+            end
+
+            STATE_EXEC: begin
+                // TODO
+                mem_raddr = pc;
+                set_mem_rdata_ready = 1;
+                next_state = STATE_FETCH;
+            end
+
+            STATE_DONE: begin
+            end
+        endcase
     end
 
     always @(posedge i_clk) begin
@@ -554,7 +635,7 @@ module cpu(input wire i_clk,
             state <= STATE_FETCH;
             cycle_count <= 0;
             o_done <= 0;
-            o_err <= 0;
+            errs <= 0;
             instr <= 0; 
             pc <= 0; 
             o_mem_raddr <= 0;
@@ -576,55 +657,13 @@ module cpu(input wire i_clk,
             rf[14] <= 0;
             rf[15] <= 0;
         end else if (i_en) begin
-            case (state)
-                
-                STATE_FETCH: begin
-                    if (i_mem_rdata_valid) begin
-                        instr <= i_mem_rdata;
-                        o_mem_rdata_ready <= 0;
-                        state <= STATE_DCODE;
-                    end
-                end
-
-                STATE_DCODE: begin
-                    // Case split on opcode
-                    case (instr[6:0])
-
-                        // ADD
-                        7'b011001: begin
-                            // TODO
-                        end
-
-                        // LW
-                        7'b0000011: begin
-                            // TODO
-                        end
-
-                        // SW
-                        7'b0100011: begin
-                            // TODO
-                        end
-
-                        // ECALL
-                        7'b1110011: begin
-                            o_done <= 1;
-                        end
-
-                        default: begin
-                            o_err <= 1;
-                        end
-                    endcase
-                    state <= STATE_EXECU;
-                end
-
-                STATE_EXECU: begin
-                    // TODO
-                    mem_raddr <= pc;
-                    mem_rdata_ready <= 1;
-                    state <= STATE_FETCH;
-                end
-
-            endcase
+            errs[ERRBIT_INVALID_OPCODE] <= errs[ERRBIT_INVALID_OPCODE] || err_invalid_opcode;
+            state <= (errs == 0) ? next_state : STATE_DONE;
+            if (clr_mem_rdata_ready) begin
+                o_mem_rdata_ready <= 0;
+            end else if (set_mem_rdata_ready) begin
+                o_mem_rdata_ready <= 1;
+            end
         end
     end
 
