@@ -659,7 +659,6 @@ module cpu(input wire i_clk,
     localparam ERRBIT_INVALID_REG = 32'd1;
     reg err_invalid_opcode;
     reg err_invalid_reg;
-    reg [24:0] err_addl_info;
     reg [31:0] errcode;
 
     reg [31:0] mem_raddr;
@@ -686,7 +685,6 @@ module cpu(input wire i_clk,
         inc_pc = 0;
         err_invalid_opcode = 0;
         err_invalid_reg = 0;
-        err_addl_info = 0;
         case (state)
             
             STATE_FETCH: begin
@@ -697,13 +695,13 @@ module cpu(input wire i_clk,
             end
 
             STATE_DCODE: begin
+                next_state = STATE_EXEC;
                 // Case split on opcode
                 case (insn[6:0])
 
                     // TODO: debugging
                     7'b0000000: begin
                         err_invalid_reg = 1;
-                        err_addl_info[23:8] = ~0;
                     end
 
                     // ADD
@@ -728,11 +726,8 @@ module cpu(input wire i_clk,
 
                     default: begin
                         err_invalid_opcode = 1;
-                        err_addl_info[23:15] = 0;
-                        err_addl_info[14:8] = insn[6:0];
                     end
                 endcase
-                next_state = STATE_EXEC;
             end
 
             STATE_EXEC: begin
@@ -776,7 +771,11 @@ module cpu(input wire i_clk,
             errcode[ERRBIT_INVALID_REG] <= errcode[ERRBIT_INVALID_REG] || err_invalid_reg;
 
             // Write additional info to the error code.
-            errcode[31:8] <= err_addl_info;
+            if (err_invalid_opcode) begin
+                errcode[14:8] <= insn[6:0];
+            end else if (err_invalid_reg) begin
+                errcode[31:8] <= ~0;
+            end
 
             if (errcode != 0) begin
                 state <= STATE_DONE;
