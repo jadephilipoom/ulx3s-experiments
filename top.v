@@ -733,7 +733,7 @@ module cpu(input wire i_clk,
     assign o_done = (state == STATE_DONE);
     assign o_errs = errcode;
     assign o_pc = pc;
-    assign o_mem_raddr = (state == STATE_FETCH) ? pc : mem_raddr;
+    assign o_mem_raddr = mem_raddr;
     assign o_mem_waddr = mem_waddr;
     assign o_mem_rdata_ready = mem_rdata_ready;
     assign o_mem_wdata = mem_wdata;
@@ -787,7 +787,9 @@ module cpu(input wire i_clk,
 
                     // Store instructions.
                     7'b0100011: begin
-                        // TODO
+                        load_mem = 1;
+                        mem_addr_offset = Simm;
+                        mem_addr_base_reg = rs1;
                     end
 
                     // System calls.
@@ -880,7 +882,6 @@ module cpu(input wire i_clk,
 
             // Write additional info to the error code.
             if (err_invalid_opcode) begin
-                errcode[31:16] <= mem_raddr[15:0]; // TODO: debugging, removeme
                 errcode[14:8] <= opcode;
             end else if (err_invalid_reg) begin
                 errcode[31:8] <= ~0;
@@ -896,7 +897,8 @@ module cpu(input wire i_clk,
                 if (load_mem) begin
                     mem_raddr <= mem_addr_offset + rf[mem_addr_base_reg];
                     mem_rdata_ready <= 1;
-                end else if (next_state == STATE_FETCH) begin
+                end else if (state == STATE_FETCH) begin
+                    mem_raddr <= pc;
                     mem_rdata_ready <= 1;
                 end else begin
                     mem_rdata_ready <= 0;
