@@ -81,8 +81,6 @@ module top(input wire clk_25mhz,
     assign cpu_en = (state == STATE_EXEC);
     reg [31:0] cpu_mem_rdata;
     reg cpu_mem_rdata_valid;
-    reg set_cpu_mem_rdata_valid;
-    reg clr_cpu_mem_rdata_valid;
     reg cpu_readmem;
     reg cpu_writeback;
     wire [31:0] cpu_mem_wdata;
@@ -90,7 +88,8 @@ module top(input wire clk_25mhz,
     wire cpu_mem_rdata_ready;
     wire [31:0] cpu_mem_raddr;
     wire [31:0] cpu_mem_waddr;
-    reg [31:0] cpu_errs;
+    wire [31:0] cpu_errs;
+    reg [31:0] cpu_errcode; // Saves the error code after a failure.
     reg cpu_done;
     cpu cpu(
         .i_clk(i_clk),
@@ -182,8 +181,6 @@ module top(input wire clk_25mhz,
         inc_memdump_line_offset = 0;
         clr_errcode_msg_byte_offset = 0;
         inc_errcode_msg_byte_offset = 0;
-        set_cpu_mem_rdata_valid = 0;
-        clr_cpu_mem_rdata_valid = 0;
         cpu_readmem = 0;
         cpu_writeback = 0;
         cycle_count_err = 0;
@@ -213,12 +210,9 @@ module top(input wire clk_25mhz,
                 if (cpu_en && cpu_mem_rdata_ready) begin
                     if (cpu_mem_raddr < MEM_BYTES && (cpu_mem_raddr % 4 == 0)) begin
                         cpu_readmem = 1;
-                        set_cpu_mem_rdata_valid = 1;
                     end else begin
                         mem_read_err = 1;
                     end
-                end else begin
-                    clr_cpu_mem_rdata_valid = 1;
                 end
 
                 // Send data from CPU to memory.
@@ -285,7 +279,7 @@ module top(input wire clk_25mhz,
                         end else if (errcode_msg_byte_offset == 8) begin
                             uart_tx_data = 8'h20; // ' '
                         end else if (errcode_msg_byte_offset < 16) begin
-                            uart_tx_data = ascii_hex_nibble(cpu_errs[(28 - (errcode_msg_byte_offset - 16)*4) +: 4]);
+                            uart_tx_data = ascii_hex_nibble(cpu_errcode[(28 - (errcode_msg_byte_offset - 16)*4) +: 4]);
                         end else if (errcode_msg_byte_offset == 16) begin
                             uart_tx_data = 8'h0d; // '\r'
                         end else if (errcode_msg_byte_offset == 17) begin
@@ -372,7 +366,9 @@ module top(input wire clk_25mhz,
             cycle_count <= 0;
             memdump_byte_offset <= 0;
             memdump_line_offset <= 0;
+            errcode_msg_byte_offset <= 0;
             cpu_mem_rdata_valid <= 0;
+            cpu_errcode <= 0;
         end else begin
             if (errs) begin
                 state <= STATE_DONE;
@@ -390,6 +386,9 @@ module top(input wire clk_25mhz,
                     cpu_mem_rdata[15: 8] <= mem[cpu_mem_raddr + 1];
                     cpu_mem_rdata[23:16] <= mem[cpu_mem_raddr + 2];
                     cpu_mem_rdata[31:24] <= mem[cpu_mem_raddr + 3];
+                    cpu_mem_rdata_valid <= 1;
+                end else begin
+                    cpu_mem_rdata_valid <= 0;
                 end
                 if (cpu_writeback) begin
                     mem[cpu_mem_raddr + 0] <= cpu_mem_wdata[ 7: 0];
@@ -397,10 +396,8 @@ module top(input wire clk_25mhz,
                     mem[cpu_mem_raddr + 2] <= cpu_mem_wdata[23:16];
                     mem[cpu_mem_raddr + 3] <= cpu_mem_wdata[31:24];
                 end
-                if (i_rst || clr_cpu_mem_rdata_valid) begin
-                    cpu_mem_rdata_valid <= 0;
-                end else if (set_cpu_mem_rdata_valid) begin
-                    cpu_mem_rdata_valid <= 1;
+                if (cpu_errs != 0) begin
+                    cpu_errcode <= cpu_errs;
                 end
             end
 
@@ -629,7 +626,7 @@ module cpu(input wire i_clk,
 
     always @(*) begin
         next_state = state;
-        err_invalid_opcode = 0;
+        err_invalid_opcode = 1;
         mem_raddr = 0;
         mem_waddr = 0;
         mem_wdata = 0;
@@ -714,9 +711,9 @@ module cpu(input wire i_clk,
         end else if (i_en) begin
             errs[ERRBIT_INVALID_OPCODE] <= errs[ERRBIT_INVALID_OPCODE] || err_invalid_opcode;
             if (errs == 0) begin
-                state <= STATE_DONE;
-            end else begin
                 state <= next_state;
+            end else begin
+                state <= STATE_DONE;
             end
             if (read_insn) begin
                 insn <= i_mem_rdata;
