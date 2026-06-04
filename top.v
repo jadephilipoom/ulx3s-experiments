@@ -422,8 +422,6 @@ module top(input wire clk_25mhz,
                     cpu_mem_rdata[23:16] <= mem[cpu_mem_raddr + 2];
                     cpu_mem_rdata[31:24] <= mem[cpu_mem_raddr + 3];
                     cpu_mem_rdata_valid <= 1;
-                end else begin
-                    cpu_mem_rdata_valid <= 0;
                 end
                 if (cpu_writeback) begin
                     mem[cpu_mem_waddr + 0] <= cpu_mem_wdata[ 7: 0];
