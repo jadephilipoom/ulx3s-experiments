@@ -89,6 +89,8 @@ module top(input wire clk_25mhz,
     wire [31:0] cpu_mem_raddr;
     wire [31:0] cpu_mem_waddr;
     wire [31:0] cpu_errs;
+    wire [31:0] cpu_pc;
+    reg [31:0] cpu_stop_pc; // Saves the final PC on exit.
     reg [31:0] cpu_errcode; // Saves the error code after a failure.
     reg cpu_done;
     cpu cpu(
@@ -102,6 +104,7 @@ module top(input wire clk_25mhz,
         .o_mem_rdata_ready(cpu_mem_rdata_ready),
         .o_mem_raddr(cpu_mem_raddr),
         .o_mem_waddr(cpu_mem_waddr),
+        .o_pc(cpu_pc),
         .o_errs(cpu_errs),
         .o_done(cpu_done),
     );
@@ -153,6 +156,11 @@ module top(input wire clk_25mhz,
     reg inc_errcode_msg_byte_offset;
     reg clr_errcode_msg_byte_offset;
 
+    // Tracking for printing the PC.
+    reg [31:0] stop_pc_msg_byte_offset;
+    reg inc_stop_pc_msg_byte_offset;
+    reg clr_stop_pc_msg_byte_offset;
+
     // Function for converting a nibble to ASCII hex.
     function [7:0] ascii_hex_nibble(input [3:0] n);
         begin
@@ -181,6 +189,8 @@ module top(input wire clk_25mhz,
         inc_memdump_line_offset = 0;
         clr_errcode_msg_byte_offset = 0;
         inc_errcode_msg_byte_offset = 0;
+        clr_stop_pc_msg_byte_offset = 0;
+        inc_stop_pc_msg_byte_offset = 0;
         cpu_readmem = 0;
         cpu_writeback = 0;
         cycle_count_err = 0;
@@ -258,6 +268,30 @@ module top(input wire clk_25mhz,
                         decrement_bit_offset = 1;
                     end else if (done_msg_bytes_sent < 35) begin
                         uart_tx_data = done_msg_suffix_chars[done_msg_bytes_sent - 33];
+                    end else if (stop_pc_msg_byte_offset < 15) begin
+                        inc_stop_pc_msg_byte_offset = 1;
+                        if (stop_pc_msg_byte_offset == 0) begin
+                            uart_tx_data = 8'h70; // 'p'
+                        end else if (stop_pc_msg_byte_offset == 1) begin
+                            uart_tx_data = 8'h63; // 'c'
+                        end else if (stop_pc_msg_byte_offset == 2) begin
+                            uart_tx_data = 8'h3a; // ':'
+                        end else if (stop_pc_msg_byte_offset == 3) begin
+                            uart_tx_data = 8'h20; // ' '
+                        end else if (stop_pc_msg_byte_offset == 4) begin
+                            uart_tx_data = 8'h30; // '0'
+                        end else if (stop_pc_msg_byte_offset == 5) begin
+                            uart_tx_data = 8'h78; // 'x'
+                        end else if (stop_pc_msg_byte_offset < 13) begin
+                            uart_tx_data = ascii_hex_nibble(cpu_stop_pc[(28 - (stop_pc_msg_byte_offset - 16)*4) +: 4]);
+                        end else if (stop_pc_msg_byte_offset == 13) begin
+                            uart_tx_data = 8'h0d; // '\r'
+                        end else if (stop_pc_msg_byte_offset == 14) begin
+                            uart_tx_data = 8'h0a; // '\n'
+                        end else begin
+                            // Shouldn't get here but if we do make it visible by printing -
+                            uart_tx_data = 8'h2d; // '-'
+                        end
                     end else if (errcode_msg_byte_offset < 18) begin
                         inc_errcode_msg_byte_offset = 1;
                         if (errcode_msg_byte_offset == 0) begin
@@ -284,11 +318,9 @@ module top(input wire clk_25mhz,
                             uart_tx_data = 8'h0d; // '\r'
                         end else if (errcode_msg_byte_offset == 17) begin
                             uart_tx_data = 8'h0a; // '\n'
-                            clr_memdump_line_offset = 1;
                         end else begin
                             // Shouldn't get here but if we do make it visible by printing -
                             uart_tx_data = 8'h2d; // '-'
-                            clr_memdump_line_offset = 1;
                         end
                     end else if (memdump_byte_offset < MEM_BYTES || (memdump_byte_offset == MEM_BYTES && (memdump_line_offset != 0))) begin
                         inc_memdump_line_offset = 1;
@@ -331,8 +363,9 @@ module top(input wire clk_25mhz,
                     clr_uart_tx_data_valid = 0;
                 end
 
-                // Restart errcode print on button press.
+                // Restart PC & errcode print on button press.
                 if (btn[3]) begin
+                    clr_stop_pc_msg_byte_offset = 1;
                     clr_errcode_msg_byte_offset = 1;
                     set_uart_tx_data_valid = 1;
                     clr_uart_tx_data_valid = 0;
@@ -366,9 +399,11 @@ module top(input wire clk_25mhz,
             cycle_count <= 0;
             memdump_byte_offset <= 0;
             memdump_line_offset <= 0;
+            stop_pc_msg_byte_offset <= 0;
             errcode_msg_byte_offset <= 0;
             cpu_mem_rdata_valid <= 0;
             cpu_errcode <= 0;
+            cpu_stop_pc <= 0;
         end else begin
             if (errs) begin
                 state <= STATE_DONE;
@@ -398,6 +433,9 @@ module top(input wire clk_25mhz,
                 end
                 if (cpu_errs != 0) begin
                     cpu_errcode <= cpu_errs;
+                end
+                if (cpu_en && cpu_done) begin
+                    cpu_stop_pc <= cpu_pc;
                 end
             end
 
@@ -430,6 +468,11 @@ module top(input wire clk_25mhz,
                 errcode_msg_byte_offset <= 0;
             end if (inc_errcode_msg_byte_offset) begin
                 errcode_msg_byte_offset <= errcode_msg_byte_offset + 1;
+            end
+            if (i_rst || clr_stop_pc_msg_byte_offset) begin
+                stop_pc_msg_byte_offset <= 0;
+            end if (inc_stop_pc_msg_byte_offset) begin
+                stop_pc_msg_byte_offset <= stop_pc_msg_byte_offset + 1;
             end
         end
 
@@ -594,6 +637,7 @@ module cpu(input wire i_clk,
            output o_mem_rdata_ready,
            output [31:0] o_mem_raddr,
            output [31:0] o_mem_waddr,
+           output [31:0] o_pc,
            output [31:0] o_errs,
            output o_done);
 
@@ -621,6 +665,7 @@ module cpu(input wire i_clk,
 
     assign o_done = (state == STATE_DONE);
     assign o_errs = errs;
+    assign o_pc = pc;
     assign o_mem_raddr = (state == STATE_FETCH) ? pc : mem_raddr;
     assign o_mem_waddr = mem_waddr;
     assign o_mem_rdata_ready = (state == STATE_FETCH);
@@ -641,7 +686,7 @@ module cpu(input wire i_clk,
             STATE_FETCH: begin
                 if (i_mem_rdata_valid) begin
                     read_insn = 1;
-                    next_state = STATE_DONE; // STATE_DCODE;
+                    next_state = STATE_DCODE;
                 end
             end
 
