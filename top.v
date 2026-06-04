@@ -283,7 +283,7 @@ module top(input wire clk_25mhz,
                         end else if (stop_pc_msg_byte_offset == 5) begin
                             uart_tx_data = 8'h78; // 'x'
                         end else if (stop_pc_msg_byte_offset < 13) begin
-                            uart_tx_data = ascii_hex_nibble(cpu_stop_pc[(28 - (stop_pc_msg_byte_offset - 16)*4) +: 4]);
+                            uart_tx_data = ascii_hex_nibble(cpu_stop_pc[(28 - (stop_pc_msg_byte_offset - 13)*4) +: 4]);
                         end else if (stop_pc_msg_byte_offset == 13) begin
                             uart_tx_data = 8'h0d; // '\r'
                         end else if (stop_pc_msg_byte_offset == 14) begin
