@@ -226,6 +226,9 @@ module top(input wire clk_25mhz,
                         end else if (memdump_line_offset == 14) begin
                             uart_tx_data = 8'h0a; // '\n'
                             clr_memdump_line_offset = 1;
+                        end else begin
+                            uart_tx_data = 8'h68; // 'h'
+                            clr_memdump_line_offset = 1;
                         end
                     end else begin
                         clr_uart_tx_data_valid = 1;
@@ -289,21 +292,20 @@ module top(input wire clk_25mhz,
             end else if (inc_bytes_sent) begin
                 done_msg_bytes_sent <= done_msg_bytes_sent + 1;
             end
+            if (inc_memdump_byte_offset) begin
+                memdump_byte_offset <= memdump_byte_offset + 1;
+            end
             // Give reset and clear precedence over set.
             if (i_rst || clr_uart_tx_data_valid) begin
                 uart_tx_data_valid <= 0;
             end else if (set_uart_tx_data_valid) begin
                 uart_tx_data_valid <= 1;
             end
-            if (inc_memdump_byte_offset) begin
-                memdump_byte_offset <= memdump_byte_offset + 1;
-            end
             // Clearing the memdump line offset takes precedence over
             // incrementing it.
             if (clr_memdump_line_offset) begin
                 memdump_line_offset <= 0;
-            end
-            if (inc_memdump_line_offset) begin
+            end else if (inc_memdump_line_offset) begin
                 memdump_line_offset <= memdump_line_offset + 1;
             end
         end
