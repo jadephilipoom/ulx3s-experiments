@@ -149,6 +149,11 @@ module top(input wire clk_25mhz,
     reg clr_memdump_byte_offset;
     reg clr_memdump_line_offset;
 
+    // Tracking for printing the error code.
+    reg [31:0] errcode_msg_byte_offset;
+    reg inc_errcode_msg_byte_offset;
+    reg clr_errcode_msg_byte_offset;
+
     // Function for converting a nibble to ASCII hex.
     function [7:0] ascii_hex_nibble(input [3:0] n);
         begin
@@ -175,6 +180,8 @@ module top(input wire clk_25mhz,
         clr_memdump_line_offset = 0;
         inc_memdump_byte_offset = 0;
         inc_memdump_line_offset = 0;
+        clr_errcode_msg_byte_offset = 0;
+        inc_errcode_msg_byte_offset = 0;
         set_cpu_mem_rdata_valid = 0;
         clr_cpu_mem_rdata_valid = 0;
         cpu_readmem = 0;
@@ -247,7 +254,7 @@ module top(input wire clk_25mhz,
                 // If the UART transmitter is ready and there is still
                 // something to print from the "done" message or memdump, then
                 // send the next byte.
-                if (uart_tx_ready && uart_tx_data_valid && !btn[2]) begin
+                if (uart_tx_ready && uart_tx_data_valid && (btn[6:1] == 0)) begin
                     inc_done_msg_bytes_sent = 1;
                     // Done message and cycle count
                     if (done_msg_bytes_sent < 17) begin
@@ -257,6 +264,38 @@ module top(input wire clk_25mhz,
                         decrement_bit_offset = 1;
                     end else if (done_msg_bytes_sent < 35) begin
                         uart_tx_data = done_msg_suffix_chars[done_msg_bytes_sent - 33];
+                    end else if (errcode_msg_byte_offset < 18) begin
+                        inc_errcode_msg_byte_offset = 1;
+                        if (errcode_msg_byte_offset == 0) begin
+                            uart_tx_data = 8'h65; // 'e'
+                        end else if (errcode_msg_byte_offset == 1) begin
+                            uart_tx_data = 8'h72; // 'r'
+                        end else if (errcode_msg_byte_offset == 2) begin
+                            uart_tx_data = 8'h72; // 'r'
+                        end else if (errcode_msg_byte_offset == 3) begin
+                            uart_tx_data = 8'h63; // 'c'
+                        end else if (errcode_msg_byte_offset == 4) begin
+                            uart_tx_data = 8'h6f; // 'o'
+                        end else if (errcode_msg_byte_offset == 5) begin
+                            uart_tx_data = 8'h64; // 'd'
+                        end else if (errcode_msg_byte_offset == 6) begin
+                            uart_tx_data = 8'h65; // 'e'
+                        end else if (errcode_msg_byte_offset == 7) begin
+                            uart_tx_data = 8'h3a; // ':'
+                        end else if (errcode_msg_byte_offset == 8) begin
+                            uart_tx_data = 8'h20; // ' '
+                        end else if (errcode_msg_byte_offset < 16) begin
+                            uart_tx_data = ascii_hex_nibble(cpu_errs[(28 - (errcode_msg_byte_offset - 16)*4) +: 4]);
+                        end else if (errcode_msg_byte_offset == 16) begin
+                            uart_tx_data = 8'h0d; // '\r'
+                        end else if (errcode_msg_byte_offset == 17) begin
+                            uart_tx_data = 8'h0a; // '\n'
+                            clr_memdump_line_offset = 1;
+                        end else begin
+                            // Shouldn't get here but if we do make it visible by printing -
+                            uart_tx_data = 8'h2d; // '-'
+                            clr_memdump_line_offset = 1;
+                        end
                     end else if (memdump_byte_offset < MEM_BYTES || (memdump_byte_offset == MEM_BYTES && (memdump_line_offset != 0))) begin
                         inc_memdump_line_offset = 1;
                         if (memdump_line_offset < 4) begin
@@ -294,6 +333,13 @@ module top(input wire clk_25mhz,
                 if (btn[2]) begin
                     clr_memdump_byte_offset = 1;
                     clr_memdump_line_offset = 1;
+                    set_uart_tx_data_valid = 1;
+                    clr_uart_tx_data_valid = 0;
+                end
+
+                // Restart errcode print on button press.
+                if (btn[3]) begin
+                    clr_errcode_msg_byte_offset = 1;
                     set_uart_tx_data_valid = 1;
                     clr_uart_tx_data_valid = 0;
                 end
@@ -382,6 +428,11 @@ module top(input wire clk_25mhz,
                 memdump_byte_offset <= 0;
             end if (inc_memdump_byte_offset) begin
                 memdump_byte_offset <= memdump_byte_offset + 1;
+            end
+            if (i_rst || clr_errcode_msg_byte_offset) begin
+                errcode_msg_byte_offset <= 0;
+            end if (inc_errcode_msg_byte_offset) begin
+                errcode_msg_byte_offset <= errcode_msg_byte_offset + 1;
             end
         end
 
