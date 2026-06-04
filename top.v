@@ -211,7 +211,7 @@ module top(input wire clk_25mhz,
                         inc_memdump_line_offset = 1;
                         if (memdump_line_offset < 4) begin
                             // Print a byte of the address.
-                            uart_tx_data = ascii_hex_nibble(memdump_byte_offset[memdump_line_offset*4 +: 4]);
+                            uart_tx_data = ascii_hex_nibble(memdump_byte_offset[(12 - memdump_line_offset*4) +: 4]);
                         end else if (memdump_line_offset == 4) begin
                             uart_tx_data = 8'h20; // ' '
                         end else if (memdump_line_offset < 13) begin
@@ -227,7 +227,8 @@ module top(input wire clk_25mhz,
                             uart_tx_data = 8'h0a; // '\n'
                             clr_memdump_line_offset = 1;
                         end else begin
-                            uart_tx_data = 8'h68; // 'h'
+                            // Shouldn't get here but if we do make it visible by printing -
+                            uart_tx_data = 8'h2d; // '-'
                             clr_memdump_line_offset = 1;
                         end
                     end else begin
