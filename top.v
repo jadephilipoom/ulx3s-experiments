@@ -29,7 +29,7 @@ module top(input wire clk_25mhz,
     localparam ERRBIT_SER = 2'd2;  // Error from the serial module.
     localparam ERRBIT_CPU = 2'd1;  // Error from the CPU module.
     localparam ERRBIT_MEM = 2'd3;  // Error from the memory module.
-    reg [1:0] errs = 0;
+    reg [3:0] errs = 0;
 
     assign uart_rx_en = (state == STATE_INIT);
     wire [7:0] uart_rx_data;
@@ -89,8 +89,8 @@ module top(input wire clk_25mhz,
     wire cpu_mem_rdata_ready;
     wire [31:0] cpu_mem_raddr;
     wire [31:0] cpu_mem_waddr;
-    wire cpu_done;
-    wire cpu_err;
+    reg [31:0] cpu_errs;
+    reg cpu_done;
     cpu cpu(
         .i_clk(i_clk),
         .i_en(cpu_en),
@@ -102,7 +102,7 @@ module top(input wire clk_25mhz,
         .o_mem_rdata_ready(cpu_mem_rdata_ready),
         .o_mem_raddr(cpu_mem_raddr),
         .o_mem_waddr(cpu_mem_waddr),
-        .o_err(cpu_err),
+        .o_errs(cpu_errs),
         .o_done(cpu_done),
     );
 
@@ -145,6 +145,7 @@ module top(input wire clk_25mhz,
     reg [31:0] memdump_byte_offset;
     reg inc_memdump_byte_offset;
     reg inc_memdump_line_offset;
+    reg clr_memdump_byte_offset;
     reg clr_memdump_line_offset;
 
     // Function for converting a nibble to ASCII hex.
@@ -241,9 +242,9 @@ module top(input wire clk_25mhz,
                 o_led[2] = (errs == 0); // Green LED on if no errors.
                 // Set additional LEDs to error flags.
                 o_led[4] = errs[0];
-                o_led[5] = uart_tx_ready; // errs[1];
-                o_led[6] = uart_tx_data_valid; // errs[2];
-                o_led[7] = memdump_byte_offset < MEM_BYTES; // errs[3];
+                o_led[5] = errs[1];
+                o_led[6] = errs[2];
+                o_led[7] = errs[3];
                 // If the UART transmitter is ready and there is still
                 // something to print from the "done" message or memdump, then
                 // send the next byte.
@@ -308,7 +309,7 @@ module top(input wire clk_25mhz,
         // Update error bits.
         errs[ERRBIT_CNT] <= errs[ERRBIT_CNT] || (inc_cycle_count && cycle_count_err);
         errs[ERRBIT_SER] <= errs[ERRBIT_SER] || ((uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err));
-        errs[ERRBIT_CPU] <= errs[ERRBIT_CPU] || (cpu_en && cpu_err);
+        errs[ERRBIT_CPU] <= errs[ERRBIT_CPU] || (cpu_en && (cpu_errs != 0));
         errs[ERRBIT_MEM] <= errs[ERRBIT_MEM] || (mem_read_err || mem_write_err);
 
         // Check for errors or reset that would intercept the state change.
@@ -326,7 +327,7 @@ module top(input wire clk_25mhz,
             cycle_count <= 0;
             memdump_byte_offset <= 0;
             memdump_line_offset <= 0;
-            cpu_mem_data_valid <= 0;
+            cpu_mem_rdata_valid <= 0;
         end else begin
             if (errs) begin
                 state <= STATE_DONE;
@@ -346,9 +347,9 @@ module top(input wire clk_25mhz,
                     mem[cpu_mem_raddr + 3] <= cpu_mem_wdata[31:24];
                 end
                 if (i_rst || clr_cpu_mem_rdata_valid) begin
-                    cpu_mem_data_valid <= 0;
+                    cpu_mem_rdata_valid <= 0;
                 end else if (set_cpu_mem_rdata_valid) begin
-                    cpu_mem_data_valid <= 1;
+                    cpu_mem_rdata_valid <= 1;
                 end
             end
 
@@ -537,7 +538,7 @@ module cpu(input wire i_clk,
            output o_mem_rdata_ready,
            output [31:0] o_mem_raddr,
            output [31:0] o_mem_waddr,
-           output o_err,
+           output [31:0] o_errs,
            output o_done);
 
     localparam STATE_FETCH = 3'd0;
@@ -546,7 +547,6 @@ module cpu(input wire i_clk,
     localparam STATE_DONE = 3'd3;
     reg [2:0] state = STATE_FETCH;
     reg [2:0] next_state;
-    assign o_done = (state == STATE_DONE);
 
     reg [31:0] pc;
     reg [31:0] instr;
@@ -554,7 +554,6 @@ module cpu(input wire i_clk,
 
     localparam ERRBIT_INVALID_OPCODE = 32'd0;
     reg [31:0] errs;
-    assign o_err = (errs != 0);
 
     reg clr_mem_rdata_ready;
     reg set_mem_rdata_ready;
@@ -563,7 +562,8 @@ module cpu(input wire i_clk,
         next_state = state;
         clr_mem_rdata_ready = 0;
         set_mem_rdata_ready = 0;
-        mem_raddr = 0;
+        o_mem_raddr = 0;
+        o_mem_waddr = 0;
         err_invalid_opcode = 0;
         case (state)
             
@@ -608,7 +608,7 @@ module cpu(input wire i_clk,
 
             STATE_EXEC: begin
                 // TODO
-                mem_raddr = pc;
+                o_mem_raddr = pc;
                 set_mem_rdata_ready = 1;
                 next_state = STATE_FETCH;
             end
@@ -623,6 +623,7 @@ module cpu(input wire i_clk,
             state <= STATE_FETCH;
             cycle_count <= 0;
             o_done <= 0;
+            o_errs <= 0;
             errs <= 0;
             instr <= 0; 
             pc <= 0; 
@@ -646,7 +647,13 @@ module cpu(input wire i_clk,
             rf[15] <= 0;
         end else if (i_en) begin
             errs[ERRBIT_INVALID_OPCODE] <= errs[ERRBIT_INVALID_OPCODE] || err_invalid_opcode;
-            state <= (errs == 0) ? next_state : STATE_DONE;
+            if (errs == 0) begin
+                state <= STATE_DONE;
+            end else begin
+                state <= next_state;
+            end
+            o_done <= (state == STATE_DONE);
+            o_errs <= errs;
             if (clr_mem_rdata_ready) begin
                 o_mem_rdata_ready <= 0;
             end else if (set_mem_rdata_ready) begin
