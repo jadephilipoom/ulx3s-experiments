@@ -18,20 +18,21 @@ module top(input wire clk_25mhz,
     assign led = o_led;
 
    // Set up basic state machine.
-    localparam STATE_INIT = 2'd0; // Initializing; program not yet loaded.
-    localparam STATE_EXEC = 2'd1; // Executing the program.
-    localparam STATE_DONE = 2'd2; // Program exited (terminal state).
-    reg [2:0] state = STATE_INIT;
-    reg [2:0] next_state = STATE_INIT;
+    localparam STATE_LOAD = 2'd0; // Loading program from serial.
+    localparam STATE_PREP = 2'd1; // Program loaded; prepare to start.
+    localparam STATE_EXEC = 2'd2; // Executing the program.
+    localparam STATE_DONE = 2'd3; // Program exited (terminal state).
+    reg [2:0] state;
+    reg [2:0] next_state;
 
     // Error flags.
     localparam ERRBIT_CNT = 2'd0;  // Error from the cycle counter.
     localparam ERRBIT_SER = 2'd2;  // Error from the serial module.
     localparam ERRBIT_CPU = 2'd1;  // Error from the CPU module.
     localparam ERRBIT_MEM = 2'd3;  // Error from the memory module.
-    reg [3:0] errs = 0;
+    reg [3:0] errs;
 
-    assign uart_rx_en = (state == STATE_INIT);
+    assign uart_rx_en = (state == STATE_LOAD);
     wire [7:0] uart_rx_data;
     wire uart_rx_data_valid;
     wire uart_rx_err;
@@ -74,6 +75,7 @@ module top(input wire clk_25mhz,
     reg load_mem_byte;
     localparam MEM_BYTES = 32'd32;
     reg [7:0] mem [0:MEM_BYTES-1];
+    reg mem_load_err;
     reg mem_read_err;
     reg mem_write_err;
 
@@ -163,6 +165,7 @@ module top(input wire clk_25mhz,
         o_led[7:0] = 0;
         decrement_bit_offset = 0;
         load_mem_byte = 0;
+        zero_mem_byte = 0;
         clr_done_msg_bytes_sent = 0;
         inc_done_msg_bytes_sent = 0;
         set_uart_tx_data_valid = 0;
@@ -182,22 +185,37 @@ module top(input wire clk_25mhz,
         cpu_readmem = 0;
         cpu_writeback = 0;
         cycle_count_err = 0;
+        mem_load_err = 0;
         mem_read_err = 0;
         mem_write_err = 0;
         uart_tx_data = 0;
         next_state = state;
         case(state)
-            STATE_INIT: begin
+            STATE_LOAD: begin
                 o_led[1] = 1;
                 clr_uart_tx_data_valid = 1;
 
-                // On button press, transition to the exec state.
+                // On button press, consider program done and transition.
                 if (btn[2]) begin
-                    next_state = STATE_EXEC;
+                    next_state = STATE_PREP;
                 end else if (uart_rx_en && uart_rx_data_valid) begin
                     // If a new byte is ready from the serial receiver, write
                     // it into memory.
-                    load_mem_byte = 1;
+                    if (loaded_bytes >= MEM_BYTES) begin
+                        mem_load_err = 1;
+                    end else begin
+                        load_mem_byte = 1;
+                    end
+                end
+            end
+            STATE_PREP: begin
+                o_led[1] = 1;
+
+                // Clear any remaining memory bytes.
+                if (loaded_bytes >= MEM_BYTES) begin
+                    next_state = STATE_EXEC;
+                end else begin
+                    zero_mem_byte = 1;
                 end
             end
             STATE_EXEC: begin
@@ -413,9 +431,6 @@ module top(input wire clk_25mhz,
         endcase
     end
 
-    // Index for memory clearing.
-    reg i;
-
     // Main state machine. This triggers on every clock edge, and observes all the blocking operations
     // computed in the combinational state above, and stores them in registers, so that the next round
     // of combinational logic has fresh inputs.
@@ -424,7 +439,7 @@ module top(input wire clk_25mhz,
         errs[ERRBIT_CNT] <= errs[ERRBIT_CNT] || (inc_cycle_count && cycle_count_err);
         errs[ERRBIT_SER] <= errs[ERRBIT_SER] || ((uart_rx_en && uart_rx_err) || (uart_tx_en && uart_tx_err));
         errs[ERRBIT_CPU] <= errs[ERRBIT_CPU] || (cpu_en && (cpu_errs != 0));
-        errs[ERRBIT_MEM] <= errs[ERRBIT_MEM] || (mem_read_err || mem_write_err);
+        errs[ERRBIT_MEM] <= errs[ERRBIT_MEM] || (mem_load_err || mem_read_err || mem_write_err);
 
         // Check for errors or reset that would intercept the state change.
         // "ASIC ready" code would put all the reset clauses in this first "if" block - because
@@ -433,7 +448,7 @@ module top(input wire clk_25mhz,
         // so you have this constant tension between FPGA-ready code and ASIC-ready code. This style
         // is very much FPGA-ready.
         if (i_rst) begin
-            state <= STATE_INIT;
+            state <= STATE_LOAD;
             errs <= 0;
             loaded_bytes <= 0;
             done_msg_bytes_sent <= 0;
@@ -448,8 +463,6 @@ module top(input wire clk_25mhz,
             cpu_mem_rdata_valid <= 0;
             cpu_errcode <= 0;
             cpu_stop_pc <= 0;
-            for (i = 0; i < MEM_BYTES; i=i+1)
-                mem[i] <= 8'hff;
         end else begin
             if (errs) begin
                 state <= STATE_DONE;
@@ -460,6 +473,9 @@ module top(input wire clk_25mhz,
                 end
                 if (load_mem_byte) begin
                     mem[loaded_bytes] <= uart_rx_data;
+                    loaded_bytes <= loaded_bytes + 1;
+                end else if (zero_mem_byte) begin
+                    mem[loaded_bytes] <= 8'h00;
                     loaded_bytes <= loaded_bytes + 1;
                 end
                 if (cpu_read_insn) begin
