@@ -4,20 +4,10 @@ module top(input wire clk_25mhz,
            output ftdi_rxd,
            output [7:0] led);
 
+    assign i_clk = clk_25mhz;
+
     // Set up reset button.
     assign i_rst = btn[1];
-
-    // Divide the clock frequency in half.
-    wire i_clk;
-    always @(posedge clk_25mhz) begin
-        if (i_rst) begin
-	    i_clk <= 1'b1;
-	end else begin
-	    i_clk <= ~i_clk;
-	end
-    end
-
-    // assign i_clk = clk_25mhz;
 
     // Set up LED array.
     // - 0, 4: red
@@ -586,7 +576,7 @@ module uart_rx(input wire i_clk,
     reg err;
 
     // Baud rate 115200, clock 25MHz
-    localparam HOLD_CYCLES = 12500000 / 115200;
+    localparam HOLD_CYCLES = 25000000 / 115200;
     localparam DELAY_CYCLES = HOLD_CYCLES / 2; // Read from the middle
 
     assign o_data = recv_data;
@@ -655,7 +645,7 @@ module uart_tx(input wire i_clk,
     reg [31:0] send_hold;
 
     // Baud rate 115200, clock 25MHz
-    localparam HOLD_CYCLES = 12500000 / 115200;
+    localparam HOLD_CYCLES = 25000000 / 115200;
 
     // Cycles to idle high in between bytes (helps avoid timing getting out of
     // sync).
