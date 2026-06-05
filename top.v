@@ -82,12 +82,15 @@ module top(input wire clk_25mhz,
     wire mem_raddr_valid;
     wire mem_waddr_valid;
     wire [31:0] mem_raddr;
-    wire [31:0] mem_waddr;
-    wire [31:0] mem_wdata;
     wire [31:0] mem_rdata;
-    wire mem_wen;
+    reg [31:0] mem_waddr;
+    reg [31:0] mem_wdata;
+    reg mem_wen;
+    reg [31:0] load_mem_word_buf;
+    reg [2:0] load_mem_word_buf_bytes;
     reg load_mem_byte;
-    reg zero_mem_byte;
+    reg load_mem_word;
+    reg zero_mem_word;
     localparam MEM_BYTES = 32'd128;
     reg [7:0] mem [0:MEM_BYTES-1];
     always @(posedge i_clk) begin
@@ -98,9 +101,6 @@ module top(input wire clk_25mhz,
 	    mem[mem_waddr + 3] <= mem_wdata[31:24];
 	end
     end
-    assign mem_waddr = (state == STATE_EXEC) ? cpu_mem_waddr : loaded_bytes;
-    assign mem_wen = (state == STATE_EXEC) ? cpu_mem_wdata_valid : (load_mem_byte || zero_mem_byte);
-    assign mem_wdata = (state == STATE_EXEC) ? cpu_mem_wdata : (load_mem_byte ? uart_rx_data : 8'd0);
     assign mem_rdata[ 7: 0] = mem[mem_raddr + 0];
     assign mem_rdata[15: 8] = mem[mem_raddr + 1];
     assign mem_rdata[23:16] = mem[mem_raddr + 2];
@@ -199,7 +199,8 @@ module top(input wire clk_25mhz,
         o_led[7:0] = 0;
         decrement_bit_offset = 0;
         load_mem_byte = 0;
-        zero_mem_byte = 0;
+        load_mem_word = 0;
+        zero_mem_word = 0;
         clr_done_msg_bytes_sent = 0;
         inc_done_msg_bytes_sent = 0;
         set_uart_tx_data_valid = 0;
@@ -220,6 +221,9 @@ module top(input wire clk_25mhz,
         cycle_count_err = 0;
         mem_load_err = 0;
         mem_read_err = 0;
+	mem_waddr = 0;
+	mem_wen = 0;
+	mem_wdata = 0;
         mem_write_err = 0;
         uart_tx_data = 0;
         next_state = state;
@@ -227,6 +231,8 @@ module top(input wire clk_25mhz,
             STATE_LOAD: begin
                 o_led[1] = 1;
                 clr_uart_tx_data_valid = 1;
+		mem_waddr = loaded_bytes;
+		mem_wdata = load_mem_word_buf;
 
                 // On button press, consider program done and transition.
                 if (btn[2]) begin
@@ -234,26 +240,35 @@ module top(input wire clk_25mhz,
                 end else if (uart_rx_en && uart_rx_data_valid) begin
                     // If a new byte is ready from the serial receiver, write
                     // it into memory.
-                    if (loaded_bytes >= MEM_BYTES) begin
+                    if (loaded_bytes >= MEM_BYTES || load_mem_word_buf_bytes >= 4) begin
                         mem_load_err = 1;
                     end else begin
                         load_mem_byte = 1;
                     end
-                end
+	        end else if (load_mem_word_buf_bytes >= 4) begin
+                    load_mem_word = 1;
+		    mem_wen = 1;
+	        end
             end
             STATE_PREP: begin
                 o_led[1] = 1;
+		mem_waddr = loaded_bytes;
+		mem_wdata = 32'd0;
 
                 // Clear any remaining memory bytes.
                 if (loaded_bytes >= MEM_BYTES) begin
                     next_state = STATE_EXEC;
                 end else begin
-                    zero_mem_byte = 1;
+                    zero_mem_word = 1;
+		    mem_wen = 1;
                 end
             end
             STATE_EXEC: begin
                 o_led[3] = 1;
                 inc_cycle_count = 1;
+		mem_waddr = cpu_mem_waddr;
+		mem_wen = cpu_mem_wdata_valid;
+		mem_wdata = cpu_mem_wdata;
 
                 // Send next instruction from memory to CPU.
                 if (cpu_en && cpu_insn_ready) begin
@@ -479,6 +494,8 @@ module top(input wire clk_25mhz,
             state <= STATE_LOAD;
             errs <= 0;
             loaded_bytes <= 0;
+	    load_mem_word_buf <= 0;
+	    load_mem_word_buf_bytes <= 0;
             done_msg_bytes_sent <= 0;
             cycle_count_bit_offset <= 6'd60;
             cycle_count <= 0;
@@ -499,10 +516,13 @@ module top(input wire clk_25mhz,
                 if (inc_cycle_count) begin
                     cycle_count <= cycle_count + 1;
                 end
-                if (load_mem_byte) begin
-                    loaded_bytes <= loaded_bytes + 1;
-                end else if (zero_mem_byte) begin
-                    loaded_bytes <= loaded_bytes + 1;
+		if (load_mem_byte) begin
+		    load_mem_word_buf <= {uart_rx_data, load_mem_word_buf[23:0]};
+                    load_mem_word_buf_bytes <= load_mem_word_buf_bytes + 1;
+		end
+                if (load_mem_word || zero_mem_word) begin
+                    loaded_bytes <= loaded_bytes + 4;
+		    load_mem_word_buf_bytes = 0;
                 end
                 if (cpu_read_insn) begin
                     cpu_insn_valid <= 1;
