@@ -433,7 +433,7 @@ module top(input wire clk_25mhz,
                     loaded_bytes <= loaded_bytes + 1;
                 end
                 if (cpu_read_insn) begin
-                    cpu_insn[ 7: 0] <= mem[cpu_pc];
+                    cpu_insn[ 7: 0] <= mem[cpu_pc + 0];
                     cpu_insn[15: 8] <= mem[cpu_pc + 1];
                     cpu_insn[23:16] <= mem[cpu_pc + 2];
                     cpu_insn[31:24] <= mem[cpu_pc + 3];
@@ -442,7 +442,7 @@ module top(input wire clk_25mhz,
                     cpu_insn_valid <= 0;
                 end
                 if (cpu_readmem) begin
-                    cpu_mem_rdata[ 7: 0] <= mem[cpu_mem_raddr];
+                    cpu_mem_rdata[ 7: 0] <= mem[cpu_mem_raddr + 0];
                     cpu_mem_rdata[15: 8] <= mem[cpu_mem_raddr + 1];
                     cpu_mem_rdata[23:16] <= mem[cpu_mem_raddr + 2];
                     cpu_mem_rdata[31:24] <= mem[cpu_mem_raddr + 3];
@@ -721,7 +721,7 @@ module cpu(input wire i_clk,
     assign rd          = insn[11: 7];
     assign Iimm        = insn[31:20];
     assign Simm[11: 5] = insn[31:25];
-    assign Simm[ 3: 0] = insn[11: 7];
+    assign Simm[ 4: 0] = insn[11: 7];
     assign Bimm[12]    = insn[31];
     assign Bimm[11]    = insn[ 7];
     assign Bimm[10: 5] = insn[30:25];
@@ -791,7 +791,7 @@ module cpu(input wire i_clk,
         case (state)
 
             STATE_FETCH: begin
-                if (i_mem_rdata_valid) begin
+                if (i_insn_valid) begin
                     read_insn = 1;
                     next_state = STATE_DCEXE;
                 end
@@ -819,7 +819,7 @@ module cpu(input wire i_clk,
 
                     // Store instructions.
                     7'b0100011: begin
-                        load_mem = 1;
+                        store_mem = 1;
                         mem_addr_offset = Simm;
                         mem_addr_base_reg = rs1;
                     end
@@ -924,10 +924,12 @@ module cpu(input wire i_clk,
                 state <= STATE_DONE;
             end else begin
                 state <= next_state;
+                if (inc_pc) begin
+                    pc <= pc + 4;
+                end
                 if (read_insn) begin
                     insn <= i_insn;
-                end
-                if (state == STATE_FETCH) begin
+                end else if (state == STATE_FETCH) begin
                     insn_ready <= 1;
                 end else begin
                     insn_ready <= 0;
