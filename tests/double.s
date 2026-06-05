@@ -2,7 +2,9 @@
 
 .global _start
 _start:
-  lw  x3, 0x40(x0)
+  addi x3, x0, 1
+  add x3, x3, x3
+  add x3, x3, x3
   add x3, x3, x3
   sw  x3, 0x40(x0)
   ecall
