@@ -72,12 +72,34 @@ module top(input wire clk_25mhz,
 
     // Set up memory.
     reg [31:0] loaded_bytes;
-    reg load_mem_byte;
-    localparam MEM_BYTES = 32'd128;
-    reg [7:0] mem [0:MEM_BYTES-1];
     reg mem_load_err;
     reg mem_read_err;
     reg mem_write_err;
+    wire [31:0] mem_raddr;
+    wire [31:0] mem_waddr;
+    wire [31:0] mem_wdata;
+    wire mem_wen;
+    reg load_mem_byte;
+    localparam MEM_BYTES = 32'd128;
+    reg [7:0] mem [0:MEM_BYTES-1];
+    always @(posedge i_clk) begin
+	if (mem_wen) begin
+	    mem[mem_waddr + 0] <= mem_wdata[ 7: 0];
+	    mem[mem_waddr + 1] <= mem_wdata[15: 8];
+	    mem[mem_waddr + 2] <= mem_wdata[23:16];
+	    mem[mem_waddr + 3] <= mem_wdata[31:24];
+	end
+    end
+    assign mem_rdata[ 7: 0] = mem[mem_raddr + 0];
+    assign mem_rdata[15: 8] = mem[mem_raddr + 1];
+    assign mem_rdata[23:16] = mem[mem_raddr + 2];
+    assign mem_rdata[31:24] = mem[mem_raddr + 3];
+    assign cpu_insn[ 7: 0] = mem[cpu_pc + 0];
+    assign cpu_insn[15: 8] = mem[cpu_pc + 1];
+    assign cpu_insn[23:16] = mem[cpu_pc + 2];
+    assign cpu_insn[31:24] = mem[cpu_pc + 3];
+    assign mem_raddr_valid = (mem_raddr < MEM_BYTES && (mem_raddr % 4 == 0));
+    assign mem_waddr_valid = (mem_waddr < MEM_BYTES && (mem_waddr % 4 == 0));
 
     // CPU interface.
     assign cpu_en = (state == STATE_EXEC);
@@ -87,12 +109,7 @@ module top(input wire clk_25mhz,
     reg cpu_insn_valid;
     reg cpu_read_insn;
     reg cpu_readmem;
-    reg cpu_writeback;
-    wire [31:0] cpu_mem_wdata;
-    wire cpu_mem_wdata_valid;
     wire cpu_mem_rdata_ready;
-    wire [31:0] cpu_mem_raddr;
-    wire [31:0] cpu_mem_waddr;
     wire [31:0] cpu_errs;
     wire [31:0] cpu_pc;
     reg [31:0] cpu_stop_pc; // Saves the final PC on exit.
@@ -104,14 +121,14 @@ module top(input wire clk_25mhz,
         .i_rst(i_rst),
         .i_insn(cpu_insn),
         .i_insn_valid(cpu_insn_valid),
-        .i_mem_rdata(cpu_mem_rdata),
+        .i_mem_rdata(mem_rdata),
         .i_mem_rdata_valid(cpu_mem_rdata_valid),
-        .o_mem_wdata(cpu_mem_wdata),
-        .o_mem_wdata_valid(cpu_mem_wdata_valid),
+        .o_mem_wdata(mem_waddr),
+        .o_mem_wdata_valid(mem_wen),
         .o_mem_rdata_ready(cpu_mem_rdata_ready),
         .o_insn_ready(cpu_insn_ready),
-        .o_mem_raddr(cpu_mem_raddr),
-        .o_mem_waddr(cpu_mem_waddr),
+        .o_mem_raddr(mem_raddr),
+        .o_mem_waddr(mem_waddr),
         .o_pc(cpu_pc),
         .o_errs(cpu_errs),
         .o_done(cpu_done),
@@ -183,7 +200,6 @@ module top(input wire clk_25mhz,
         inc_cycles_msg_byte_offset = 0;
         reset_cycle_count_bit_offset = 0;
         cpu_readmem = 0;
-        cpu_writeback = 0;
         cycle_count_err = 0;
         mem_load_err = 0;
         mem_read_err = 0;
@@ -233,7 +249,7 @@ module top(input wire clk_25mhz,
 
                 // Send data from memory to CPU.
                 if (cpu_en && cpu_mem_rdata_ready) begin
-                    if (cpu_mem_raddr < MEM_BYTES && (cpu_mem_raddr % 4 == 0)) begin
+                    if (mem_raddr_valid) begin
                         cpu_readmem = 1;
                     end else begin
                         mem_read_err = 1;
@@ -242,9 +258,7 @@ module top(input wire clk_25mhz,
 
                 // Send data from CPU to memory.
                 if (cpu_en && cpu_mem_wdata_valid) begin
-                    if (cpu_mem_waddr < MEM_BYTES && (cpu_mem_waddr % 4 == 0)) begin
-                        cpu_writeback = 1;
-                    end else begin
+                    if (!mem_waddr_valid) begin
                         mem_write_err = 1;
                     end
                 end
@@ -459,8 +473,8 @@ module top(input wire clk_25mhz,
             cycles_msg_byte_offset <= 0;
             stop_pc_msg_byte_offset <= 0;
             errcode_msg_byte_offset <= 0;
+	    cpu_mem_rdata_valid <= 0;
             cpu_insn_valid <= 0;
-            cpu_mem_rdata_valid <= 0;
             cpu_errcode <= 0;
             cpu_stop_pc <= 0;
         end else begin
@@ -479,28 +493,14 @@ module top(input wire clk_25mhz,
                     loaded_bytes <= loaded_bytes + 1;
                 end
                 if (cpu_read_insn) begin
-                    cpu_insn[ 7: 0] <= mem[cpu_pc + 0];
-                    cpu_insn[15: 8] <= mem[cpu_pc + 1];
-                    cpu_insn[23:16] <= mem[cpu_pc + 2];
-                    cpu_insn[31:24] <= mem[cpu_pc + 3];
                     cpu_insn_valid <= 1;
                 end else begin
                     cpu_insn_valid <= 0;
                 end
                 if (cpu_readmem) begin
-                    cpu_mem_rdata[ 7: 0] <= mem[cpu_mem_raddr + 0];
-                    cpu_mem_rdata[15: 8] <= mem[cpu_mem_raddr + 1];
-                    cpu_mem_rdata[23:16] <= mem[cpu_mem_raddr + 2];
-                    cpu_mem_rdata[31:24] <= mem[cpu_mem_raddr + 3];
                     cpu_mem_rdata_valid <= 1;
                 end else begin
                     cpu_mem_rdata_valid <= 0;
-                end
-                if (cpu_writeback) begin
-                    mem[cpu_mem_waddr + 0] <= cpu_mem_wdata[ 7: 0];
-                    mem[cpu_mem_waddr + 1] <= cpu_mem_wdata[15: 8];
-                    mem[cpu_mem_waddr + 2] <= cpu_mem_wdata[23:16];
-                    mem[cpu_mem_waddr + 3] <= cpu_mem_wdata[31:24];
                 end
                 if (cpu_errs != 0) begin
                     cpu_errcode <= cpu_errs;
@@ -794,11 +794,11 @@ module cpu(input wire i_clk,
     reg load_mem;
     reg store_mem;
 
-    localparam WRITEBACK_LOAD  = 3'd0;
-    localparam WRITEBACK_STORE = 3'd2;
-    localparam WRITEBACK_REG   = 3'd3;
-    localparam WRITEBACK_PC    = 3'd4;
-    reg [2:0] writeback_dest;
+    localparam WRITEBACK_LOAD  = 2'd0;
+    localparam WRITEBACK_STORE = 2'd1;
+    localparam WRITEBACK_REG   = 2'd2;
+    localparam WRITEBACK_PC    = 2'd3;
+    reg [1:0] writeback_dest;
     reg do_writeback;
 
     // Operation information.

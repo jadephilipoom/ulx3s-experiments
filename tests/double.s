@@ -2,10 +2,9 @@
 
 .global _start
 _start:
-  la  x4, input
-  lw  x3, 0(x4)
+  lw  x3, 0x40(x0)
   add x3, x3, x3
-  sw  x3, 0(x4)
+  sw  x3, 0x40(x0)
   ecall
 
 .section .data
