@@ -115,39 +115,11 @@ module top(input wire clk_25mhz,
         .o_done(cpu_done),
     );
 
-    // Tracking for printing message at the end of exec. Cycle count is printed
-    // in hex between prefix and suffix.
+    // Tracking for printing message at the end of exec. Cycle count is
+    // printed in hex between prefix and suffix.
     reg [31:0] done_msg_bytes_sent;
-    reg [7:0] done_msg_prefix_chars [0:16];
-    reg [7:0] done_msg_suffix_chars [0:1];
-    reg [6:0] cycle_count_bit_offset;
-    reg decrement_bit_offset;
     reg clr_done_msg_bytes_sent;
     reg inc_done_msg_bytes_sent;
-    initial begin
-        done_msg_bytes_sent = 0;
-        cycle_count_bit_offset = 6'd60;
-        done_msg_prefix_chars[ 0] = 8'h64; // 'd'
-        done_msg_prefix_chars[ 1] = 8'h6f; // 'o'
-        done_msg_prefix_chars[ 2] = 8'h6e; // 'n'
-        done_msg_prefix_chars[ 3] = 8'h65; // 'e'
-        done_msg_prefix_chars[ 4] = 8'h21; // '!'
-        done_msg_prefix_chars[ 5] = 8'h0d; // '\r'
-        done_msg_prefix_chars[ 6] = 8'h0a; // '\n'
-        done_msg_prefix_chars[ 7] = 8'h63; // 'c'
-        done_msg_prefix_chars[ 8] = 8'h79; // 'y'
-        done_msg_prefix_chars[ 9] = 8'h63; // 'c'
-        done_msg_prefix_chars[10] = 8'h6c; // 'l'
-        done_msg_prefix_chars[11] = 8'h65; // 'e'
-        done_msg_prefix_chars[12] = 8'h73; // 's'
-        done_msg_prefix_chars[13] = 8'h3a; // ':'
-        done_msg_prefix_chars[14] = 8'h20; // ' '
-        done_msg_prefix_chars[15] = 8'h30; // '0'
-        done_msg_prefix_chars[16] = 8'h78; // 'x'
-
-        done_msg_suffix_chars[ 0] = 8'h0d; // '\r'
-        done_msg_suffix_chars[ 1] = 8'h0a; // '\n'
-    end
 
     // Tracking for printing the memdump.
     reg [31:0] memdump_line_offset;
@@ -166,6 +138,13 @@ module top(input wire clk_25mhz,
     reg [31:0] stop_pc_msg_byte_offset;
     reg inc_stop_pc_msg_byte_offset;
     reg clr_stop_pc_msg_byte_offset;
+
+    // Tracking for printing the cycle count.
+    reg [31:0] cycles_msg_byte_offset;
+    reg [6:0] cycle_count_bit_offset;
+    reg decrement_bit_offset;
+    reg inc_cycles_msg_byte_offset;
+    reg clr_cycles_msg_byte_offset;
 
     // Function for converting a nibble to ASCII hex.
     function [7:0] ascii_hex_nibble(input [3:0] n);
@@ -197,6 +176,9 @@ module top(input wire clk_25mhz,
         inc_errcode_msg_byte_offset = 0;
         clr_stop_pc_msg_byte_offset = 0;
         inc_stop_pc_msg_byte_offset = 0;
+        clr_cycles_msg_byte_offset = 0;
+        inc_cycles_msg_byte_offset = 0;
+        reset_cycle_count_bit_offset = 0;
         cpu_readmem = 0;
         cpu_writeback = 0;
         cycle_count_err = 0;
@@ -209,8 +191,8 @@ module top(input wire clk_25mhz,
                 o_led[1] = 1;
                 clr_uart_tx_data_valid = 1;
 
-                // If we got all the bytes we need, transition to the exec state.
-                if (loaded_bytes >= MEM_BYTES) begin
+                // On button press, transition to the exec state.
+                if (btn[2]) begin
                     next_state = STATE_EXEC;
                 end else if (uart_rx_en && uart_rx_data_valid) begin
                     // If a new byte is ready from the serial receiver, write
@@ -274,15 +256,55 @@ module top(input wire clk_25mhz,
                 // something to print from the "done" message or memdump, then
                 // send the next byte.
                 if (uart_tx_ready && uart_tx_data_valid && (btn[6:1] == 0)) begin
-                    inc_done_msg_bytes_sent = 1;
-                    // Done message and cycle count
-                    if (done_msg_bytes_sent < 17) begin
-                        uart_tx_data = done_msg_prefix_chars[done_msg_bytes_sent];
-                    end else if (done_msg_bytes_sent < 33) begin
-                        uart_tx_data = ascii_hex_nibble(cycle_count[cycle_count_bit_offset +: 4]);
-                        decrement_bit_offset = 1;
-                    end else if (done_msg_bytes_sent < 35) begin
-                        uart_tx_data = done_msg_suffix_chars[done_msg_bytes_sent - 33];
+                    if (done_msg_bytes_sent < 7) begin
+                        // Print done message.
+                        inc_done_msg_bytes_sent = 1;
+                        if (done_msg_bytes_sent == 0) begin
+                            uart_tx_data = 8'h64; // 'd'
+                        end else if (done_msg_bytes_sent == 1) begin
+                            uart_tx_data = 8'h6f; // 'o'
+                        end else if (done_msg_bytes_sent == 2) begin
+                            uart_tx_data = 8'h6e; // 'n'
+                        end else if (done_msg_bytes_sent == 3) begin
+                            uart_tx_data = 8'h65; // 'e'
+                        end else if (done_msg_bytes_sent == 4) begin
+                            uart_tx_data = 8'h21; // '!'
+                        end else if (done_msg_bytes_sent == 5) begin
+                            uart_tx_data = 8'h0d; // '\r'
+                        end else if (done_msg_bytes_sent == 6) begin
+                            uart_tx_data = 8'h0a; // '\n'
+                        end
+                    end else if (cycles_msg_byte_offset < 20) begin
+                        // Print cycle count.
+                        inc_cycles_msg_byte_offset = 1;
+                        if (cycles_msg_byte_offset == 0) begin
+                            uart_tx_data = 8'h63; // 'c'
+                        end else if (cycles_msg_byte_offset == 1) begin
+                            uart_tx_data = 8'h79; // 'y'
+                        end else if (cycles_msg_byte_offset == 2) begin
+                            uart_tx_data = 8'h63; // 'c'
+                        end else if (cycles_msg_byte_offset == 3) begin
+                            uart_tx_data = 8'h6c; // 'l'
+                        end else if (cycles_msg_byte_offset == 4) begin
+                            uart_tx_data = 8'h65; // 'e'
+                        end else if (cycles_msg_byte_offset == 5) begin
+                            uart_tx_data = 8'h73; // 's'
+                        end else if (cycles_msg_byte_offset == 6) begin
+                            uart_tx_data = 8'h3a; // ':'
+                        end else if (cycles_msg_byte_offset == 7) begin
+                            uart_tx_data = 8'h20; // ' '
+                        end else if (cycles_msg_byte_offset == 8) begin
+                            uart_tx_data = 8'h30; // '0'
+                        end else if (cycles_msg_byte_offset == 9) begin
+                            uart_tx_data = 8'h78; // 'x'
+                        end else if (cycles_msg_byte_offset < 18) begin
+                            uart_tx_data = ascii_hex_nibble(cycle_count[cycle_count_bit_offset +: 4]);
+                            decrement_bit_offset = 1;
+                        end else if (cycles_msg_byte_offset == 18) begin
+                            uart_tx_data = 8'h0d; // '\r'
+                        end else if (cycles_msg_byte_offset == 19) begin
+                            uart_tx_data = 8'h0a; // '\n'
+                        end
                     end else if (stop_pc_msg_byte_offset < 15) begin
                         inc_stop_pc_msg_byte_offset = 1;
                         if (stop_pc_msg_byte_offset == 0) begin
@@ -371,23 +393,28 @@ module top(input wire clk_25mhz,
                 end
 
                 // Restart memdump on button press.
-                if (btn[2]) begin
+                if (btn[4]) begin
                     clr_memdump_byte_offset = 1;
                     clr_memdump_line_offset = 1;
                     set_uart_tx_data_valid = 1;
                     clr_uart_tx_data_valid = 0;
                 end
 
-                // Restart PC & errcode print on button press.
+                // Restart cycles + PC + errcode print on button press.
                 if (btn[3]) begin
+                    clr_cycles_msg_byte_offset = 1;
                     clr_stop_pc_msg_byte_offset = 1;
                     clr_errcode_msg_byte_offset = 1;
+                    reset_cycle_count_bit_offset = 1;
                     set_uart_tx_data_valid = 1;
                     clr_uart_tx_data_valid = 0;
                 end
             end
         endcase
     end
+
+    // Index for memory clearing.
+    reg i;
 
     // Main state machine. This triggers on every clock edge, and observes all the blocking operations
     // computed in the combinational state above, and stores them in registers, so that the next round
@@ -414,12 +441,15 @@ module top(input wire clk_25mhz,
             cycle_count <= 0;
             memdump_byte_offset <= 0;
             memdump_line_offset <= 0;
+            cycles_msg_byte_offset <= 0;
             stop_pc_msg_byte_offset <= 0;
             errcode_msg_byte_offset <= 0;
             cpu_insn_valid <= 0;
             cpu_mem_rdata_valid <= 0;
             cpu_errcode <= 0;
             cpu_stop_pc <= 0;
+            for (i = 0; i < MEM_BYTES; i=i+1)
+                mem[i] <= 8'hff;
         end else begin
             if (errs) begin
                 state <= STATE_DONE;
@@ -465,7 +495,9 @@ module top(input wire clk_25mhz,
             end
 
             // Printing logic happens regardless of errors.
-            if (decrement_bit_offset) begin
+            if (reset_cycle_count_bit_offset) begin
+                cycle_count_bit_offset <= 6'd60;
+            end else if (decrement_bit_offset) begin
                 cycle_count_bit_offset <= cycle_count_bit_offset - 4;
             end
             if (clr_done_msg_bytes_sent) begin
@@ -498,6 +530,11 @@ module top(input wire clk_25mhz,
                 stop_pc_msg_byte_offset <= 0;
             end if (inc_stop_pc_msg_byte_offset) begin
                 stop_pc_msg_byte_offset <= stop_pc_msg_byte_offset + 1;
+            end
+            if (i_rst || clr_cycles_msg_byte_offset) begin
+                cycles_msg_byte_offset <= 0;
+            end if (inc_cycles_msg_byte_offset) begin
+                cycles_msg_byte_offset <= cycles_msg_byte_offset + 1;
             end
         end
 
