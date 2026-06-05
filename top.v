@@ -4,9 +4,11 @@ module top(input wire clk_25mhz,
            output ftdi_rxd,
            output [7:0] led);
 
+    wire i_clk;
     assign i_clk = clk_25mhz;
 
     // Set up reset button.
+    wire i_rst;
     assign i_rst = btn[1];
 
     // Set up LED array.
@@ -32,10 +34,11 @@ module top(input wire clk_25mhz,
     localparam ERRBIT_MEM = 2'd3;  // Error from the memory module.
     reg [3:0] errs;
 
-    assign uart_rx_en = (state == STATE_LOAD);
+    wire uart_rx_en;
     wire [7:0] uart_rx_data;
     wire uart_rx_data_valid;
     wire uart_rx_err;
+    assign uart_rx_en = (state == STATE_LOAD);
     uart_rx uart_rx(
         .i_clk(i_clk),
         .i_en(uart_rx_en),
@@ -46,13 +49,14 @@ module top(input wire clk_25mhz,
         .o_err(uart_rx_err),
     );
 
-    assign uart_tx_en = (state == STATE_DONE);
+    wire uart_tx_en;
     reg [7:0] uart_tx_data;
     reg uart_tx_data_valid;
     reg set_uart_tx_data_valid;
     reg clr_uart_tx_data_valid;
     wire uart_tx_ready;
     wire uart_tx_err;
+    assign uart_tx_en = (state == STATE_DONE);
     uart_tx uart_tx(
         .i_clk(i_clk),
         .i_en(uart_tx_en),
@@ -75,11 +79,15 @@ module top(input wire clk_25mhz,
     reg mem_load_err;
     reg mem_read_err;
     reg mem_write_err;
+    wire mem_raddr_valid;
+    wire mem_waddr_valid;
     wire [31:0] mem_raddr;
     wire [31:0] mem_waddr;
     wire [31:0] mem_wdata;
+    wire [31:0] mem_rdata;
     wire mem_wen;
     reg load_mem_byte;
+    reg zero_mem_byte;
     localparam MEM_BYTES = 32'd128;
     reg [7:0] mem [0:MEM_BYTES-1];
     always @(posedge i_clk) begin
@@ -102,11 +110,12 @@ module top(input wire clk_25mhz,
     assign mem_waddr_valid = (mem_waddr < MEM_BYTES && (mem_waddr % 4 == 0));
 
     // CPU interface.
-    assign cpu_en = (state == STATE_EXEC);
+    wire cpu_en;
     reg [31:0] cpu_mem_rdata;
     reg cpu_mem_rdata_valid;
     wire [31:0] cpu_insn;
     reg cpu_insn_valid;
+    wire cpu_insn_ready;
     reg cpu_read_insn;
     reg cpu_readmem;
     wire cpu_mem_rdata_ready;
@@ -115,6 +124,7 @@ module top(input wire clk_25mhz,
     reg [31:0] cpu_stop_pc; // Saves the final PC on exit.
     reg [31:0] cpu_errcode; // Saves the error code after a failure.
     reg cpu_done;
+    assign cpu_en = (state == STATE_EXEC);
     cpu cpu(
         .i_clk(i_clk),
         .i_en(cpu_en),
@@ -123,7 +133,7 @@ module top(input wire clk_25mhz,
         .i_insn_valid(cpu_insn_valid),
         .i_mem_rdata(mem_rdata),
         .i_mem_rdata_valid(cpu_mem_rdata_valid),
-        .o_mem_wdata(mem_waddr),
+        .o_mem_wdata(mem_wdata),
         .o_mem_wdata_valid(mem_wen),
         .o_mem_rdata_ready(cpu_mem_rdata_ready),
         .o_insn_ready(cpu_insn_ready),
@@ -161,9 +171,10 @@ module top(input wire clk_25mhz,
     // Tracking for printing the cycle count.
     reg [31:0] cycles_msg_byte_offset;
     reg [6:0] cycle_count_bit_offset;
-    reg decrement_bit_offset;
     reg inc_cycles_msg_byte_offset;
     reg clr_cycles_msg_byte_offset;
+    reg reset_cycle_count_bit_offset;
+    reg decrement_bit_offset;
 
     // Function for converting a nibble to ASCII hex.
     function [7:0] ascii_hex_nibble(input [3:0] n);
@@ -247,7 +258,6 @@ module top(input wire clk_25mhz,
                     end
                 end
 
-                // Send data from memory to CPU.
                 if (cpu_en && cpu_mem_rdata_ready) begin
                     if (mem_raddr_valid) begin
                         cpu_readmem = 1;
@@ -256,8 +266,7 @@ module top(input wire clk_25mhz,
                     end
                 end
 
-                // Send data from CPU to memory.
-                if (cpu_en && cpu_mem_wdata_valid) begin
+                if (cpu_en && mem_wen) begin
                     if (!mem_waddr_valid) begin
                         mem_write_err = 1;
                     end
@@ -271,7 +280,6 @@ module top(input wire clk_25mhz,
                 // If the CPU is done, transition to the done state and print a message.
                 if (cpu_en && cpu_done) begin
                     next_state = STATE_DONE;
-                    uart_tx_data = done_msg_prefix_chars[0];
                     set_uart_tx_data_valid = 1;
                     clr_done_msg_bytes_sent = 1;
                 end
@@ -717,7 +725,7 @@ module cpu(input wire i_clk,
            output o_mem_rdata_ready,
            output [31:0] o_mem_raddr,
            output [31:0] o_mem_waddr,
-           output [31:0] o_insn_ready,
+           output o_insn_ready,
            output [31:0] o_pc,
            output [31:0] o_errs,
            output o_done);
