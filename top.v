@@ -81,6 +81,9 @@ module top(input wire clk_25mhz,
     assign cpu_en = (state == STATE_EXEC);
     reg [31:0] cpu_mem_rdata;
     reg cpu_mem_rdata_valid;
+    wire [31:0] cpu_insn;
+    reg cpu_insn_valid;
+    reg cpu_read_insn;
     reg cpu_readmem;
     reg cpu_writeback;
     wire [31:0] cpu_mem_wdata;
@@ -97,11 +100,14 @@ module top(input wire clk_25mhz,
         .i_clk(i_clk),
         .i_en(cpu_en),
         .i_rst(i_rst),
+        .i_insn(cpu_insn),
+        .i_insn_valid(cpu_insn_valid),
         .i_mem_rdata(cpu_mem_rdata),
         .i_mem_rdata_valid(cpu_mem_rdata_valid),
         .o_mem_wdata(cpu_mem_wdata),
         .o_mem_wdata_valid(cpu_mem_wdata_valid),
         .o_mem_rdata_ready(cpu_mem_rdata_ready),
+        .o_insn_ready(cpu_insn_ready),
         .o_mem_raddr(cpu_mem_raddr),
         .o_mem_waddr(cpu_mem_waddr),
         .o_pc(cpu_pc),
@@ -215,6 +221,15 @@ module top(input wire clk_25mhz,
             STATE_EXEC: begin
                 o_led[3] = 1;
                 inc_cycle_count = 1;
+
+                // Send next instruction from memory to CPU.
+                if (cpu_en && cpu_insn_ready) begin
+                    if (cpu_pc < MEM_BYTES && (cpu_pc % 4 == 0)) begin
+                        cpu_read_insn = 1;
+                    end else begin
+                        mem_read_err = 1;
+                    end
+                end
 
                 // Send data from memory to CPU.
                 if (cpu_en && cpu_mem_rdata_ready) begin
@@ -401,6 +416,7 @@ module top(input wire clk_25mhz,
             memdump_line_offset <= 0;
             stop_pc_msg_byte_offset <= 0;
             errcode_msg_byte_offset <= 0;
+            cpu_insn_valid <= 0;
             cpu_mem_rdata_valid <= 0;
             cpu_errcode <= 0;
             cpu_stop_pc <= 0;
@@ -415,6 +431,15 @@ module top(input wire clk_25mhz,
                 if (load_mem_byte) begin
                     mem[loaded_bytes] <= uart_rx_data;
                     loaded_bytes <= loaded_bytes + 1;
+                end
+                if (cpu_read_insn) begin
+                    cpu_insn[ 7: 0] <= mem[cpu_pc];
+                    cpu_insn[15: 8] <= mem[cpu_pc + 1];
+                    cpu_insn[23:16] <= mem[cpu_pc + 2];
+                    cpu_insn[31:24] <= mem[cpu_pc + 3];
+                    cpu_insn_valid <= 1;
+                end else begin
+                    cpu_insn_valid <= 0;
                 end
                 if (cpu_readmem) begin
                     cpu_mem_rdata[ 7: 0] <= mem[cpu_mem_raddr];
@@ -630,6 +655,8 @@ endmodule
 module cpu(input wire i_clk,
            input wire i_en,
            input wire i_rst,
+           input [31:0] i_insn,
+           input i_insn_valid,
            input [31:0] i_mem_rdata,
            input i_mem_rdata_valid,
            output [31:0] o_mem_wdata,
@@ -637,6 +664,7 @@ module cpu(input wire i_clk,
            output o_mem_rdata_ready,
            output [31:0] o_mem_raddr,
            output [31:0] o_mem_waddr,
+           output [31:0] o_insn_ready,
            output [31:0] o_pc,
            output [31:0] o_errs,
            output o_done);
@@ -653,6 +681,7 @@ module cpu(input wire i_clk,
     reg [31:0] rf [0:31];
     reg inc_pc;
     reg read_insn;
+    reg insn_ready;
 
     // Error code format:
     // - bits [7:0] hold the error flags
@@ -737,6 +766,7 @@ module cpu(input wire i_clk,
     assign o_pc = pc;
     assign o_mem_raddr = mem_raddr;
     assign o_mem_waddr = mem_waddr;
+    assign o_insn_ready = insn_ready;
     assign o_mem_rdata_ready = mem_rdata_ready;
     assign o_mem_wdata = mem_wdata;
     assign o_mem_wdata_valid = mem_wdata_valid;
@@ -839,6 +869,7 @@ module cpu(input wire i_clk,
             state <= STATE_FETCH;
             errcode <= 0;
             pc <= 0;
+            insn_ready <= 0;
             mem_raddr <= 0;
             mem_rdata_ready <= 0;
             mem_waddr <= 0;
@@ -894,13 +925,15 @@ module cpu(input wire i_clk,
             end else begin
                 state <= next_state;
                 if (read_insn) begin
-                    insn <= i_mem_rdata;
+                    insn <= i_insn;
+                end
+                if (state == STATE_FETCH) begin
+                    insn_ready <= 1;
+                end else begin
+                    insn_ready <= 0;
                 end
                 if (load_mem) begin
                     mem_raddr <= mem_addr_offset + rf[mem_addr_base_reg];
-                    mem_rdata_ready <= 1;
-                end else if (state == STATE_FETCH) begin
-                    mem_raddr <= pc;
                     mem_rdata_ready <= 1;
                 end else begin
                     mem_rdata_ready <= 0;
