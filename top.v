@@ -73,7 +73,7 @@ module top(input wire clk_25mhz,
     // Set up memory.
     reg [31:0] loaded_bytes;
     reg load_mem_byte;
-    localparam MEM_BYTES = 32'd32;
+    localparam MEM_BYTES = 32'd128;
     reg [7:0] mem [0:MEM_BYTES-1];
     reg mem_load_err;
     reg mem_read_err;
@@ -824,6 +824,14 @@ module cpu(input wire i_clk,
     assign o_mem_wdata = mem_wdata;
     assign o_mem_wdata_valid = mem_wdata_valid;
 
+    // Sign extension helper function for 12-bit immediates.
+    function [31:0] signext(input [11:0] imm);
+        begin
+            signext = (imm[11] ? (32'd0 - {22'd0, imm[10:0]})
+                               : {22'd0, imm[10:0]});
+        end
+    endfunction
+
     always @(*) begin
         next_state = state;
         read_insn = 0;
@@ -863,6 +871,15 @@ module cpu(input wire i_clk,
                         do_arith = 1;
                     end
 
+                    // Register-immediate arithmetic.
+                    7'b0010011: begin
+                        op1 = rf[rs1];
+                        op2 = signext(Iimm);
+                        arith_code = funct3;
+                        arith_sign = insn[30];
+                        do_arith = 1;
+                    end
+
                     // Load instructions.
                     7'b0000011: begin
                         load_mem = 1;
@@ -880,6 +897,15 @@ module cpu(input wire i_clk,
                     // System calls.
                     7'b1110011: begin
                         next_state = STATE_DONE;
+                    end
+
+                    // AUIPC instruction.
+                    7'b00010111: begin
+                        op1 <= pc;
+                        op1 <= Uimm;
+                        arith_code = ARITH_CODE_ADD;
+                        arith_sign = 0;
+                        do_arith = 1;
                     end
 
                     default: begin
