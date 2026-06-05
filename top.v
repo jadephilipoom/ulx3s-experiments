@@ -98,6 +98,9 @@ module top(input wire clk_25mhz,
 	    mem[mem_waddr + 3] <= mem_wdata[31:24];
 	end
     end
+    assign mem_waddr = (state == STATE_EXEC) ? cpu_mem_waddr : loaded_bytes;
+    assign mem_wen = (state == STATE_EXEC) ? cpu_mem_wdata_valid : (load_mem_byte || zero_mem_byte);
+    assign mem_wdata = (state == STATE_EXEC) ? cpu_mem_wdata : (load_mem_byte ? uart_rx_data : 8'd0);
     assign mem_rdata[ 7: 0] = mem[mem_raddr + 0];
     assign mem_rdata[15: 8] = mem[mem_raddr + 1];
     assign mem_rdata[23:16] = mem[mem_raddr + 2];
@@ -119,6 +122,9 @@ module top(input wire clk_25mhz,
     reg cpu_read_insn;
     reg cpu_readmem;
     wire cpu_mem_rdata_ready;
+    wire [31:0] cpu_mem_wdata;
+    wire cpu_mem_wdata_valid;
+    wire [31:0] cpu_mem_waddr;
     wire [31:0] cpu_errs;
     wire [31:0] cpu_pc;
     reg [31:0] cpu_stop_pc; // Saves the final PC on exit.
@@ -133,12 +139,12 @@ module top(input wire clk_25mhz,
         .i_insn_valid(cpu_insn_valid),
         .i_mem_rdata(mem_rdata),
         .i_mem_rdata_valid(cpu_mem_rdata_valid),
-        .o_mem_wdata(mem_wdata),
-        .o_mem_wdata_valid(mem_wen),
+        .o_mem_wdata(cpu_mem_wdata),
+        .o_mem_wdata_valid(cpu_mem_wdata_valid),
         .o_mem_rdata_ready(cpu_mem_rdata_ready),
         .o_insn_ready(cpu_insn_ready),
         .o_mem_raddr(mem_raddr),
-        .o_mem_waddr(mem_waddr),
+        .o_mem_waddr(cpu_mem_waddr),
         .o_pc(cpu_pc),
         .o_errs(cpu_errs),
         .o_done(cpu_done),
@@ -266,7 +272,7 @@ module top(input wire clk_25mhz,
                     end
                 end
 
-                if (cpu_en && mem_wen) begin
+                if (cpu_en && cpu_mem_wdata_valid) begin
                     if (!mem_waddr_valid) begin
                         mem_write_err = 1;
                     end
@@ -494,10 +500,8 @@ module top(input wire clk_25mhz,
                     cycle_count <= cycle_count + 1;
                 end
                 if (load_mem_byte) begin
-                    mem[loaded_bytes] <= uart_rx_data;
                     loaded_bytes <= loaded_bytes + 1;
                 end else if (zero_mem_byte) begin
-                    mem[loaded_bytes] <= 8'h00;
                     loaded_bytes <= loaded_bytes + 1;
                 end
                 if (cpu_read_insn) begin
@@ -760,7 +764,6 @@ module cpu(input wire i_clk,
     reg [ 5:0] mem_addr_base_reg;
     reg [31:0] mem_addr_base;
     reg mem_rdata_ready;
-    reg mem_wdata_valid;
 
     // Alias different regions of the instruction for convenience.
     wire [6:0] opcode;
@@ -830,7 +833,7 @@ module cpu(input wire i_clk,
     assign o_insn_ready = insn_ready;
     assign o_mem_rdata_ready = mem_rdata_ready;
     assign o_mem_wdata = mem_wdata;
-    assign o_mem_wdata_valid = mem_wdata_valid;
+    assign o_mem_wdata_valid = do_writeback && (writeback_dest == WRITEBACK_STORE);
 
     // Sign extension helper function for 12-bit immediates.
     function [31:0] signext(input [11:0] imm);
@@ -961,7 +964,6 @@ module cpu(input wire i_clk,
             mem_rdata_ready <= 0;
             mem_waddr <= 0;
             mem_wdata <= 0;
-            mem_wdata_valid <= 0;
             result <= 0;
             rf[0] <= 0;
             rf[1] <= 0;
@@ -1046,7 +1048,6 @@ module cpu(input wire i_clk,
                         end
                     endcase
                 end
-                mem_wdata_valid <= do_writeback && (writeback_dest == WRITEBACK_STORE);
                 if (do_writeback) begin
                     case (writeback_dest)
                         WRITEBACK_REG: begin
