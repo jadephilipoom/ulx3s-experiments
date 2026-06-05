@@ -87,7 +87,6 @@ module top(input wire clk_25mhz,
     reg [31:0] mem_wdata;
     reg mem_wen;
     reg [31:0] load_mem_word_buf;
-    reg [2:0] load_mem_word_buf_bytes;
     reg load_mem_byte;
     reg load_mem_word;
     reg zero_mem_word;
@@ -240,12 +239,12 @@ module top(input wire clk_25mhz,
                 end else if (uart_rx_en && uart_rx_data_valid) begin
                     // If a new byte is ready from the serial receiver, write
                     // it into memory.
-                    if (loaded_bytes >= MEM_BYTES || load_mem_word_buf_bytes >= 4) begin
+                    if (loaded_bytes >= MEM_BYTES) begin
                         mem_load_err = 1;
                     end else begin
                         load_mem_byte = 1;
                     end
-	        end else if (load_mem_word_buf_bytes >= 4) begin
+	        end else if (loaded_bytes & 3 == 0) begin
                     load_mem_word = 1;
 		    mem_wen = 1;
 	        end
@@ -495,7 +494,6 @@ module top(input wire clk_25mhz,
             errs <= 0;
             loaded_bytes <= 0;
 	    load_mem_word_buf <= 0;
-	    load_mem_word_buf_bytes <= 0;
             done_msg_bytes_sent <= 0;
             cycle_count_bit_offset <= 6'd60;
             cycle_count <= 0;
@@ -518,11 +516,10 @@ module top(input wire clk_25mhz,
                 end
 		if (load_mem_byte) begin
 		    load_mem_word_buf <= {uart_rx_data, load_mem_word_buf[23:0]};
-                    load_mem_word_buf_bytes <= load_mem_word_buf_bytes + 1;
+                    loaded_bytes <= loaded_bytes + 1;
 		end
-                if (load_mem_word || zero_mem_word) begin
-                    loaded_bytes <= loaded_bytes + 4;
-		    load_mem_word_buf_bytes = 0;
+                if (zero_mem_word) begin
+		    loaded_bytes <= loaded_bytes + 4;
                 end
                 if (cpu_read_insn) begin
                     cpu_insn_valid <= 1;
